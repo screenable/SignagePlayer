@@ -1,9 +1,21 @@
 #!/bin/sh
 set -eu
 export XDG_SESSION_TYPE=x11
-openbox &
+release_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+# Signage darf nie schwarz werden: Bildschirmschoner und DPMS abschalten
+# (zusätzlich zu /etc/X11/xorg.conf.d/10-screenable-kiosk.conf).
+xset s off s noblank -dpms || true
+
+# Eigene Openbox-Konfiguration ohne Root-Menü, Terminal und Fensterwechsel.
+openbox --config-file "${release_dir}/openbox/rc.xml" &
 openbox_pid=$!
 trap 'systemctl --user stop screenable-player.service || true; kill "$openbox_pid" 2>/dev/null || true' EXIT
+
+# Mauszeiger nach drei Sekunden ohne Bewegung ausblenden.
+if command -v unclutter >/dev/null 2>&1; then unclutter -idle 3 & fi
+
 systemctl --user import-environment DISPLAY XAUTHORITY XDG_RUNTIME_DIR
-systemctl --user start screenable-player.service
+systemctl --user reset-failed screenable-player.service 2>/dev/null || true
+systemctl --user restart screenable-player.service
 wait "$openbox_pid" || true

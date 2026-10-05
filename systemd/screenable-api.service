@@ -1,30 +1,58 @@
 [Unit]
 Description=Screenable Player API and dashboard
+Documentation=file:///opt/screenable-player/current/README.md
 After=network.target
 
 [Service]
 Type=simple
 User=screenable-api
 Group=screenable
-WorkingDirectory=/opt/screenable-player
+UMask=0027
+WorkingDirectory=/opt/screenable-player/current
+Environment=NODE_ENV=production
 Environment=SCREENABLE_STATE_DIR=/var/lib/screenable-player
 Environment=SCREENABLE_RUN_DIR=/run/screenable-player
 Environment=SCREENABLE_TLS_CERT=/etc/screenable-player/tls.crt
 Environment=SCREENABLE_TLS_KEY=/etc/screenable-player/tls.key
 Environment=SCREENABLE_HOST=0.0.0.0
 Environment=SCREENABLE_PORT=8443
-ExecStart=/usr/bin/node /opt/screenable-player/dist/api.js
-Restart=on-failure
+ExecStart=/usr/bin/node /opt/screenable-player/current/dist/api.js
+# Zertifikat neu laden, ohne Sitzungen zu verlieren.
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
 RestartSec=3
+TimeoutStopSec=10
+# Die Datei aus tmpfiles.d legt das Verzeichnis beim Booten an; bei einem
+# API-Neustart bleibt es erhalten, damit der Player weiter Status schreiben kann.
 RuntimeDirectory=screenable-player
 RuntimeDirectoryMode=0770
+RuntimeDirectoryPreserve=yes
+ReadWritePaths=/var/lib/screenable-player
+
 NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/lib/screenable-player /run/screenable-player
-CapabilityBoundingSet=
+PrivateDevices=true
+DevicePolicy=closed
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RemoveIPC=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target

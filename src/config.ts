@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 export type Config = {
@@ -60,8 +60,13 @@ export function atomicWrite(path: string, content: string, mode = 0o640): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = join(dirname(path), `.${randomUUID()}.tmp`);
   const fd = openSync(tmp, 'wx', mode);
-  try { writeFileSync(fd, content); fsyncSync(fd); } finally { closeSync(fd); }
-  renameSync(tmp, path);
+  try {
+    try { writeFileSync(fd, content); fsyncSync(fd); } finally { closeSync(fd); }
+    renameSync(tmp, path);
+  } catch (error) {
+    rmSync(tmp, { force: true });
+    throw error;
+  }
   const dir = openSync(dirname(path), 'r');
   try { fsyncSync(dir); } finally { closeSync(dir); }
 }

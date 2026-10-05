@@ -1,5 +1,8 @@
 node_modules
 .git
+.github
+dist
+web/dist
 state
 docs
 *.log

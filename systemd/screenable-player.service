@@ -1,14 +1,19 @@
 [Unit]
 Description=Screenable Chromium kiosk controller
-After=default.target
+Documentation=file:///opt/screenable-player/current/README.md
+# Wird von scripts/xsession in der X11-Sitzung gestartet, nachdem DISPLAY und
+# XAUTHORITY in den User-Manager importiert wurden. Kein [Install]-Abschnitt,
+# damit der Dienst nicht versehentlich ohne X-Sitzung aktiviert wird.
+ConditionEnvironment=DISPLAY
 
 [Service]
 Type=simple
+Environment=NODE_ENV=production
 Environment=SCREENABLE_STATE_DIR=/var/lib/screenable-player
 Environment=SCREENABLE_RUN_DIR=/run/screenable-player
-ExecStart=/usr/bin/node /opt/screenable-player/dist/player.js
-Restart=on-failure
+# Am Gerät erprobte Chromium-Zusatzflags per Drop-in setzen, z. B.:
+#   Environment=SCREENABLE_CHROMIUM_FLAGS=--enable-features=VaapiVideoDecoder
+ExecStart=/usr/bin/node /opt/screenable-player/current/dist/player.js
+Restart=always
 RestartSec=5
-
-[Install]
-WantedBy=default.target
+TimeoutStopSec=15
