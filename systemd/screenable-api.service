@@ -1,0 +1,30 @@
+[Unit]
+Description=Screenable Player API and dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=screenable-api
+Group=screenable
+WorkingDirectory=/opt/screenable-player
+Environment=SCREENABLE_STATE_DIR=/var/lib/screenable-player
+Environment=SCREENABLE_RUN_DIR=/run/screenable-player
+Environment=SCREENABLE_TLS_CERT=/etc/screenable-player/tls.crt
+Environment=SCREENABLE_TLS_KEY=/etc/screenable-player/tls.key
+Environment=SCREENABLE_HOST=0.0.0.0
+Environment=SCREENABLE_PORT=8443
+ExecStart=/usr/bin/node /opt/screenable-player/dist/api.js
+Restart=on-failure
+RestartSec=3
+RuntimeDirectory=screenable-player
+RuntimeDirectoryMode=0770
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/screenable-player /run/screenable-player
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

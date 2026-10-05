@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "revision": 0,
+  "mode": "single",
+  "outputId": null,
+  "contentUrl": "https://example.screenable.invalid/game",
+  "recovery": {
+    "browserRestartDelaySeconds": 5,
+    "maxRapidRestarts": 5
+  }
+}

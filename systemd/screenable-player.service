@@ -1,0 +1,14 @@
+[Unit]
+Description=Screenable Chromium kiosk controller
+After=default.target
+
+[Service]
+Type=simple
+Environment=SCREENABLE_STATE_DIR=/var/lib/screenable-player
+Environment=SCREENABLE_RUN_DIR=/run/screenable-player
+ExecStart=/usr/bin/node /opt/screenable-player/dist/player.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

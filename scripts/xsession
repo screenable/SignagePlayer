@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+export XDG_SESSION_TYPE=x11
+openbox &
+openbox_pid=$!
+trap 'systemctl --user stop screenable-player.service || true; kill "$openbox_pid" 2>/dev/null || true' EXIT
+systemctl --user import-environment DISPLAY XAUTHORITY XDG_RUNTIME_DIR
+systemctl --user start screenable-player.service
+wait "$openbox_pid" || true

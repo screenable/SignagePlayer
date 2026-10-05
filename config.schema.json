@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screenable.local/schema/player-config-v1.json",
+  "title": "Screenable Player Single-Screen-Konfiguration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "revision", "mode", "outputId", "contentUrl", "recovery"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "revision": { "type": "integer", "minimum": 0 },
+    "mode": { "const": "single" },
+    "outputId": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9_.-]{1,64}$" },
+    "contentUrl": { "type": ["string", "null"], "maxLength": 2048, "format": "uri" },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["browserRestartDelaySeconds", "maxRapidRestarts"],
+      "properties": {
+        "browserRestartDelaySeconds": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "maxRapidRestarts": { "type": "integer", "minimum": 1, "maximum": 20 }
+      }
+    }
+  }
+}

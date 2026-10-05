@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Screenable Hardwaretest</title>
+<style>body{font:18px system-ui;background:#111f22;color:#e9f6ef;margin:0;padding:40px}h1{font-size:32px}main{max-width:800px;margin:auto}li{margin:12px 0}canvas,video{background:#000;max-width:100%;border-radius:8px}.ok{color:#64e0a0}.bad{color:#ff9d88}button{padding:12px 20px;font:inherit;margin:12px 0}</style></head>
+<body><main><h1>Screenable Hardwaretest</h1><p>Prüfe Bild, Ton und Eingaben direkt am D613. Für hörbaren Ton Lautsprecher anschließen.</p>
+<ul><li>Tastatur: <span id="keyboard">Taste drücken</span></li><li>Gamepad: <span id="gamepad">Taste drücken</span></li><li>WebGL: <span id="webgl">Prüfung läuft</span></li><li>WebAudio Autoplay: <span id="webaudio">Prüfung läuft</span></li><li>HTML Audio Autoplay: <span id="audio">Prüfung läuft</span></li><li>Video Autoplay: <span id="video">Prüfung läuft</span></li></ul>
+<button id="retry">Medientests erneut starten</button><p>Beim Start sollten zwei kurze Töne hörbar sein. Ein grüner API-Status belegt noch keine hörbare Ausgabe.</p><canvas id="canvas" width="320" height="180"></canvas><video id="test-video" width="320" height="180" muted playsinline></video>
+<script src="/diagnostic.js" defer></script></main></body></html>

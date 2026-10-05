@@ -1,0 +1,26 @@
+{
+  "name": "screenable-player",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && npm run build:web",
+    "build:web": "vite build --config web/vite.config.ts",
+    "dev:web": "vite --config web/vite.config.ts --host 127.0.0.1",
+    "dev:api": "node --watch --experimental-strip-types src/api.ts",
+    "start:api": "node dist/api.js",
+    "start:player": "node dist/player.js",
+    "setup": "node dist/cli.js init",
+    "test": "node --test dist/tests/*.test.js"
+  },
+  "dependencies": {
+    "vue": "3.5.43"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.5",
+    "@vitejs/plugin-vue": "5.2.4",
+    "typescript": "5.9.3",
+    "vite": "6.4.3"
+  }
+}
