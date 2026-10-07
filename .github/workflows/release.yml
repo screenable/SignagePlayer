@@ -1,0 +1,38 @@
+name: Release
+
+# Ein Tag wie v0.3.0 auf main baut, testet und veröffentlicht das Installationspaket.
+# Danach installiert `curl -fsSL …/install.sh | sudo bash` diese Version.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Entspricht dem nodejs-Paket in Debian 13.
+          node-version: 20
+          cache: npm
+      - name: Tag und package.json abgleichen
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} passt nicht zur Version ${version} in package.json"
+            exit 1
+          fi
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: bash scripts/package.sh
+      - name: Release veröffentlichen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" release/* \
+            --title "Screenable Player ${GITHUB_REF_NAME}" --generate-notes --verify-tag

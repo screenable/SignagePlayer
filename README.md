@@ -6,19 +6,19 @@ Schlanker Single-Screen-Player für den Giada D613: Debian 13, X11/Openbox, Chro
 
 Ein Skript richtet ein frisch installiertes Debian 13 vollständig ein. Es arbeitet zwölf Schritte nacheinander ab: Pakete, Anwendung, Benutzer, Firewall, LTE, WLAN-Hotspot, Passwort, Zertifikat, Updates und Start. Jeder Schritt prüft zuerst, ob er schon erledigt ist. Bricht etwas ab, Ursache beheben und das Skript erneut starten.
 
-Aus dem Installationspaket (fertig gebaut, kein npm auf dem Gerät nötig; `npm run package` oder CI-Artefakt):
+Direkt von GitHub, mit dem neuesten Release:
 
 ```sh
-tar xzf screenable-player-0.3.0.tar.gz
-cd screenable-player-0.3.0
-sudo ./install.sh
+curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo bash
 ```
 
-Alternativ direkt aus einem Git-Checkout: `sudo ./install.sh` baut dann bei Bedarf selbst (als aufrufender Benutzer, installiert dafür npm).
+Das Skript lädt das fertig gebaute Paket des Releases, prüft dessen SHA-256-Prüfsumme und installiert es; auf dem Gerät ist kein npm nötig. Eine bestimmte Version: `… | sudo SCREENABLE_VERSION=v0.3.0 bash`. Solange das Repository privat ist, braucht der Download ein Lese-Token (siehe [Betrieb](docs/operations.md#installation-von-github)).
+
+Alternativ aus einem entpackten Installationspaket (`npm run package`) oder Git-Checkout: `sudo ./install.sh`. Im Checkout baut das Skript bei Bedarf selbst (als aufrufender Benutzer, installiert dafür npm).
 
 Das Skript fragt nur, was noch fehlt: Dashboard-Passwort, WLAN-Passwort für einen neuen Hotspot und gegebenenfalls die SIM-PIN. Vorhandene Netzwerkprofile bleiben unverändert; nur die Hotspot-Adresse wird fest eingetragen. Danach im Hotspot `https://10.42.0.1:8443` oder `https://<hostname>.local:8443` öffnen, dem lokalen Zertifikat vertrauen und eine HTTPS-Inhalts-URL speichern. Nach der Erstinstallation das Gerät neu starten (das Skript bietet es an). Über LTE nimmt das Gerät keine Verbindungen an.
 
-Updates laufen genauso: neues Paket entpacken, `sudo ./install.sh`. Ein neues Release wird erst nach erfolgreichem Health-Check aktiv, sonst automatisch zurückgerollt. Optionen und Betrieb: [Betrieb](docs/operations.md), alle Optionen auch mit `./install.sh --help`.
+Updates laufen genauso: denselben Befehl erneut ausführen. Ein neues Release wird erst nach erfolgreichem Health-Check aktiv, sonst automatisch zurückgerollt. Optionen und Betrieb: [Betrieb](docs/operations.md), alle Optionen auch mit `./install.sh --help`.
 
 **Voraussetzung:** Debian 13 amd64 am D613 mit funktionierendem lokalen X11-Start. Die Hardwarekompatibilität, HDMI-Audio, GPU-Beschleunigung und Eingaben sind noch am echten Gerät abzunehmen. Siehe [Hardwaretest](docs/hardware-test-d613.md).
 

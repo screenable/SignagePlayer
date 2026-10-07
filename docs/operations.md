@@ -51,6 +51,41 @@ sudo SCREENABLE_ADMIN_PASSWORD='…' SCREENABLE_HOTSPOT_PSK='…' SCREENABLE_SIM
 
 `SCREENABLE_SIM_PIN=` (leer) bedeutet: SIM ohne PIN, nicht nachfragen. Der Hotspot verwendet WPA2 mit CCMP. Neue Profile legt das Skript als NetworkManager-Keyfiles (Rechte 0600) an, damit Passwörter nicht in Prozesslisten erscheinen.
 
+## Installation von GitHub
+
+`install.sh` kann allein per `curl` gestartet werden. Es lädt dann aus den GitHub-Releases das Paket `screenable-player.tar.gz` und `SHA256SUMS`, prüft die Prüfsumme, entpackt in ein temporäres Verzeichnis und startet das darin enthaltene `install.sh`. Rückfragen kommen auch bei `curl | sudo bash` vom Terminal.
+
+```sh
+# neuestes Release
+curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo bash
+# bestimmte Version, zusätzliche Optionen
+curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo SCREENABLE_VERSION=v0.3.0 SCREENABLE_REBOOT_TIME=05:30 bash
+```
+
+Auf einem minimalen Debian ohne `curl` vorher `sudo apt install -y curl` ausführen. Die Prüfsumme schützt vor beschädigten oder abgebrochenen Downloads; die Echtheit hängt am Zugang zum GitHub-Repository.
+
+**Privates Repository:** GitHub liefert Dateien privater Repositories nur mit Token aus. Dafür ein Fine-grained Personal Access Token anlegen (GitHub → Settings → Developer settings → Fine-grained tokens): nur Repository `screenable/SignagePlayer`, Berechtigung *Contents: Read-only*. Das Token beim Aufruf abfragen statt es in die Shell-Historie zu schreiben:
+
+```sh
+read -rsp 'GitHub-Token: ' T; echo
+curl -fsSL -H "Authorization: Bearer $T" https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh \
+  | sudo SCREENABLE_GITHUB_TOKEN="$T" bash
+unset T
+```
+
+Das Token wird nur für den Download verwendet und weder gespeichert noch protokolliert.
+
+### Release veröffentlichen
+
+Releases entstehen automatisch über `.github/workflows/release.yml`, sobald auf `main` ein Versions-Tag gepusht wird. Der Tag muss zur Version in `package.json` passen:
+
+```sh
+npm version 0.3.1 --no-git-tag-version   # Version erhöhen, committen, nach main mergen
+git tag v0.3.1 && git push origin v0.3.1
+```
+
+Der Workflow baut und testet unter Node 20 (wie Debian 13) und veröffentlicht `screenable-player.tar.gz` (fester Name für „neuestes Release“), `screenable-player-<version>.tar.gz` und `SHA256SUMS`. Ab dann installiert der `curl`-Befehl diese Version.
+
 ## Netzwerkzugang
 
 Das Gerät geht über LTE ins Internet und spannt einen eigenen WLAN-Hotspot auf. Verwaltet wird es **nur aus dem Hotspot**: Dashboard, SSH und mDNS sind ausschließlich dort erreichbar. Über LTE (IPv4 und die öffentliche IPv6-Adresse) nimmt das Gerät keine Verbindungen an; eine Fernwartung über LTE ist nicht vorgesehen.
@@ -124,11 +159,10 @@ Chromium-eigene Kürzel zum Schließen (Strg+W, Strg+Umschalt+Q) lassen sich nic
 
 ## Updates und Rollback
 
-Neue Version auf einem Testgerät prüfen, dann das Installationspaket auf das Gerät kopieren und ausführen:
+Neue Version auf einem Testgerät prüfen, dann auf dem Gerät denselben Befehl wie bei der Installation ausführen (oder ein Installationspaket entpacken und `sudo ./install.sh`):
 
 ```sh
-tar xzf screenable-player-<version>.tar.gz && cd screenable-player-<version>
-sudo ./install.sh
+curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo bash
 ```
 
 Der Installer legt ein neues Release an, installiert dessen Systemdateien, schaltet `current` um, startet API und Player neu und wartet auf `/api/v1/health`. Schlägt das fehl, aktiviert er automatisch das vorherige Release und entfernt das fehlerhafte. Konfiguration, Secrets und TLS-Schlüssel werden nie überschrieben. Änderungen an Xorg-Dateien wirken erst nach einem Neustart.

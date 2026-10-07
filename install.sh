@@ -1,6 +1,10 @@
 #!/bin/bash
 # Screenable Player: Installation und Aktualisierung auf Debian 13 in einem Durchgang.
 #
+# Direkt von GitHub (lädt das neueste Release, prüft die Prüfsumme und installiert):
+#   curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo bash
+#
+# Aus einem entpackten Installationspaket oder Git-Checkout:
 #   sudo ./install.sh            interaktiv: fragt Passwörter ab, die noch fehlen
 #   sudo ./install.sh --help     alle Optionen
 #
@@ -11,6 +15,11 @@ set -Eeuo pipefail
 usage() {
   cat <<'EOF'
 Aufruf: sudo ./install.sh
+   oder: curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo bash
+
+Download von GitHub (nur beim Aufruf per curl):
+  SCREENABLE_VERSION=v0.3.0                     bestimmtes Release statt des neuesten
+  SCREENABLE_GITHUB_TOKEN=…                     Lese-Token, solange das Repository privat ist
 
 Optionen als Umgebungsvariablen (werden in /etc/screenable-player/install.env gespeichert;
 beim Aufruf gesetzte Werte haben Vorrang):
@@ -34,10 +43,60 @@ Für eine Installation ohne Rückfragen (werden nicht gespeichert):
   SCREENABLE_SIM_PIN          SIM-PIN, falls das LTE-Profil noch fehlt und die SIM eine PIN hat
 EOF
 }
-if [ "${1:-}" = '--help' ] || [ "${1:-}" = '-h' ]; then usage; exit 0; fi
+
+# Wird install.sh allein gestartet (per curl), lädt es das Release-Paket von GitHub,
+# prüft die Prüfsumme und startet das darin enthaltene install.sh.
+bootstrap() {
+  local repo=${SCREENABLE_REPO:-screenable/SignagePlayer}
+  local version=${SCREENABLE_VERSION:-latest}
+  local token=${SCREENABLE_GITHUB_TOKEN:-}
+  local web=${SCREENABLE_GITHUB_WEB:-https://github.com} api=${SCREENABLE_GITHUB_API:-https://api.github.com}
+  local asset=screenable-player.tar.gz tmp dir json url name base
+  if [ "${EUID}" -ne 0 ]; then
+    echo 'Bitte mit sudo ausführen: curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo bash' >&2
+    exit 1
+  fi
+  if ! command -v curl >/dev/null 2>&1; then apt-get update -q && apt-get install -y -q curl ca-certificates; fi
+  tmp=$(mktemp -d)
+  # shellcheck disable=SC2064 # Pfad jetzt festhalten
+  trap "rm -rf '${tmp}'" EXIT
+  echo "Lade Screenable Player (${version}) aus ${repo} …"
+  if [ -z "${token}" ]; then
+    if [ "${version}" = latest ]; then base="${web}/${repo}/releases/latest/download"; else base="${web}/${repo}/releases/download/${version}"; fi
+    if ! curl -fsSL --retry 3 -o "${tmp}/${asset}" "${base}/${asset}" || ! curl -fsSL --retry 3 -o "${tmp}/SHA256SUMS" "${base}/SHA256SUMS"; then
+      echo "Download von ${base} fehlgeschlagen. Gibt es das Release ${version}? Bei privatem Repository SCREENABLE_GITHUB_TOKEN setzen (siehe README)." >&2
+      exit 1
+    fi
+  else
+    # Private Repositories liefern Release-Dateien nur über die API aus.
+    if [ "${version}" = latest ]; then url="${api}/repos/${repo}/releases/latest"; else url="${api}/repos/${repo}/releases/tags/${version}"; fi
+    json=$(curl -fsSL --retry 3 -H "Authorization: Bearer ${token}" -H 'Accept: application/vnd.github+json' "${url}") \
+      || { echo "Release ${version} nicht abrufbar (Token gültig und für ${repo} freigegeben?)." >&2; exit 1; }
+    for name in "${asset}" SHA256SUMS; do
+      url=$(printf '%s' "${json}" | tr -d '\n' | grep -o "\"url\": *\"[^\"]*/releases/assets/[0-9]*\"[^}]*\"name\": *\"${name//./\\.}\"" \
+        | grep -o 'https\?://[^"]*/releases/assets/[0-9]*' | sed -n 1p || true)
+      [ -n "${url}" ] || { echo "Release ${version} enthält ${name} nicht." >&2; exit 1; }
+      curl -fsSL --retry 3 -H "Authorization: Bearer ${token}" -H 'Accept: application/octet-stream' -o "${tmp}/${name}" "${url}"
+    done
+  fi
+  if ! (cd "${tmp}" && grep " ${asset}\$" SHA256SUMS | sha256sum -c --quiet - >/dev/null); then
+    echo 'Prüfsumme des Pakets stimmt nicht; Abbruch.' >&2
+    exit 1
+  fi
+  tar -xzf "${tmp}/${asset}" -C "${tmp}"
+  dir=$(find "${tmp}" -mindepth 2 -maxdepth 2 -name install.sh -printf '%h\n' | sed -n 1p)
+  [ -n "${dir}" ] || { echo 'Paket enthält kein install.sh.' >&2; exit 1; }
+  echo "Paket $(basename "${dir}") geprüft, starte Installation."
+  # Bei curl | bash ist stdin das Skript selbst; Rückfragen kommen vom Terminal.
+  if (: < /dev/tty) 2>/dev/null; then bash "${dir}/install.sh" < /dev/tty; else bash "${dir}/install.sh" < /dev/null; fi
+}
+
+# Der gesamte Ablauf steckt in Funktionen und startet erst in der letzten Zeile, damit
+# bei curl | bash nichts ausgeführt wird, bevor das Skript vollständig geladen ist.
+main() {
 if [ "${EUID}" -ne 0 ]; then echo 'Bitte mit sudo ausführen: sudo ./install.sh' >&2; exit 1; fi
 
-project_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+project_dir=${script_dir}
 base=/opt/screenable-player
 etc=/etc/screenable-player
 state=/var/lib/screenable-player
@@ -54,10 +113,11 @@ step() { step_no=$((step_no + 1)); current_step=$1; printf '\n==> [%d/%d] %s\n' 
 ok() { printf '    ✓ %s\n' "$*"; }
 note() { printf '    • %s\n' "$*"; }
 fail() { printf '    ✗ %s\n' "$*" >&2; exit 1; }
+# shellcheck disable=SC2317 # über trap aufgerufen
 on_exit() {
   local rc=$?
   if [ "${rc}" -ne 0 ]; then
-    printf '\nAbbruch in Schritt '%s'. Protokoll: %s\nUrsache beheben und sudo ./install.sh erneut ausführen; erledigte Schritte werden übersprungen.\n' \
+    printf '\nAbbruch in Schritt "%s". Protokoll: %s\nUrsache beheben und sudo ./install.sh erneut ausführen; erledigte Schritte werden übersprungen.\n' \
       "${current_step}" "${log}" >&2
   fi
 }
@@ -461,7 +521,7 @@ fi
 
 # ---------------------------------------------------------------------------
 current_step='Abschluss'
-printf '\nFertig. Im Hotspot '%s' erreichbar:\n  https://%s:8443\n  https://%s.local:8443\n' "${hotspot_ssid}" "${hotspot_address}" "${host}"
+printf '\nFertig. Im Hotspot "%s" erreichbar:\n  https://%s:8443\n  https://%s.local:8443\n' "${hotspot_ssid}" "${hotspot_address}" "${host}"
 if [ -z "${previous}" ]; then
   echo 'Erstinstallation: Ein Neustart startet den Kiosk und übernimmt alle Einstellungen.'
   if [ "${interactive}" = 1 ]; then
@@ -469,3 +529,10 @@ if [ -z "${previous}" ]; then
     if [[ "${answer}" =~ ^[jJyY]$ ]]; then systemctl reboot; fi
   fi
 fi
+}
+
+if [ "${1:-}" = '--help' ] || [ "${1:-}" = '-h' ]; then usage; exit 0; fi
+script_dir=''
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); fi
+if [ -n "${script_dir}" ] && [ -f "${script_dir}/package.json" ]; then main "$@"; else bootstrap "$@"; fi
+exit
