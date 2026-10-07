@@ -1,7 +1,7 @@
 #!/bin/bash
 # Aktiviert das Release, in dem dieses Skript liegt: Systemdateien aus dem Release
 # installieren, /opt/screenable-player/current atomar umstellen, Dienste neu starten
-# und den API-Health-Check abwarten. Wird von install-debian13.sh und rollback.sh genutzt.
+# und den API-Health-Check abwarten. Wird von install.sh und rollback.sh genutzt.
 set -euo pipefail
 
 if [ "${EUID}" -ne 0 ]; then echo 'Bitte mit sudo ausführen.' >&2; exit 1; fi

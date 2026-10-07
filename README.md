@@ -2,20 +2,23 @@
 
 Schlanker Single-Screen-Player für den Giada D613: Debian 13, X11/Openbox, Chromium und ein lokales Dashboard. Dieses Repository setzt zunächst den MVP für **einen** HDMI-Ausgang um.
 
-## Schnellstart auf Debian 13
+## Installation auf Debian 13
 
-Auf einem frisch installierten Gerät ohne anderen Display-Manager:
+Ein Skript richtet ein frisch installiertes Debian 13 vollständig ein. Es arbeitet zwölf Schritte nacheinander ab: Pakete, Anwendung, Benutzer, Firewall, LTE, WLAN-Hotspot, Passwort, Zertifikat, Updates und Start. Jeder Schritt prüft zuerst, ob er schon erledigt ist. Bricht etwas ab, Ursache beheben und das Skript erneut starten.
+
+Aus dem Installationspaket (fertig gebaut, kein npm auf dem Gerät nötig; `npm run package` oder CI-Artefakt):
 
 ```sh
-npm ci
-npm run build
-sudo bash scripts/install-debian13.sh
-sudo reboot
+tar xzf screenable-player-0.3.0.tar.gz
+cd screenable-player-0.3.0
+sudo ./install.sh
 ```
 
-Der Installer richtet getrennte Benutzer `screenable-api` und `screenable`, eine automatische Anmeldung auf `tty1`, Xorg/Openbox, systemd-Dienste, Avahi, Chromium-Richtlinien, automatische Sicherheitsupdates und ein selbstsigniertes TLS-Zertifikat ein. Er fragt beim ersten Lauf nach einem Administratorpasswort. Verwaltet wird das Gerät nur aus seinem WLAN-Hotspot; über LTE nimmt es keine Verbindungen an. Danach im Hotspot `https://10.42.0.1:8443` oder `https://<hostname>.local:8443` öffnen, dem lokalen Zertifikat auf dem Verwaltungsgerät vertrauen und eine HTTPS-Inhalts-URL speichern. Ohne konfigurierte URL bleibt der Player im Wartezustand.
+Alternativ direkt aus einem Git-Checkout: `sudo ./install.sh` baut dann bei Bedarf selbst (als aufrufender Benutzer, installiert dafür npm).
 
-Jede Installation wird als eigenes Release unter `/opt/screenable-player/releases` abgelegt und erst nach erfolgreichem Health-Check aktiv; sonst schaltet der Installer automatisch auf das vorherige Release zurück. Optionen (Kiosk-Sperren, Update-Neustartzeit, Anzahl Releases) und der Betrieb sind in [Betrieb](docs/operations.md) beschrieben.
+Das Skript fragt nur, was noch fehlt: Dashboard-Passwort, WLAN-Passwort für einen neuen Hotspot und gegebenenfalls die SIM-PIN. Vorhandene Netzwerkprofile bleiben unverändert; nur die Hotspot-Adresse wird fest eingetragen. Danach im Hotspot `https://10.42.0.1:8443` oder `https://<hostname>.local:8443` öffnen, dem lokalen Zertifikat vertrauen und eine HTTPS-Inhalts-URL speichern. Nach der Erstinstallation das Gerät neu starten (das Skript bietet es an). Über LTE nimmt das Gerät keine Verbindungen an.
+
+Updates laufen genauso: neues Paket entpacken, `sudo ./install.sh`. Ein neues Release wird erst nach erfolgreichem Health-Check aktiv, sonst automatisch zurückgerollt. Optionen und Betrieb: [Betrieb](docs/operations.md), alle Optionen auch mit `./install.sh --help`.
 
 **Voraussetzung:** Debian 13 amd64 am D613 mit funktionierendem lokalen X11-Start. Die Hardwarekompatibilität, HDMI-Audio, GPU-Beschleunigung und Eingaben sind noch am echten Gerät abzunehmen. Siehe [Hardwaretest](docs/hardware-test-d613.md).
 

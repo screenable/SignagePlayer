@@ -1,21 +1,55 @@
 # Installation und Betrieb
 
-## Installationsoptionen
+## Installation
 
-`scripts/install-debian13.sh` liest optionale Umgebungsvariablen und speichert sie in `/etc/screenable-player/install.env`, damit Updates und Rollbacks dieselben Einstellungen verwenden:
+`install.sh` (im Installationspaket bzw. im Repository-Stamm) richtet das Gerät in zwölf Schritten ein und ist beliebig oft ausführbar:
+
+| Schritt | Wenn schon erledigt |
+|---|---|
+| 1. Voraussetzungen (Debian 13, Optionen) | – |
+| 2. Systempakete (Xorg, Openbox, Chromium, Node.js, NetworkManager, ModemManager, nftables, Avahi) | apt installiert nur Fehlendes |
+| 3. Anwendung bauen (nur im Git-Checkout, als aufrufender Benutzer) | übersprungen, wenn der Build aktuell ist |
+| 4. Benutzer und Verzeichnisse | unverändert |
+| 5. Release vorbereiten | gleicher Inhalt → kein neues Release |
+| 6. Firewall | Regeln werden ohne Lücke neu geladen |
+| 7. Mobilfunk: LTE-Profil anlegen, falls keins existiert und ein Modem erkannt wird | vorhandenes Profil bleibt unverändert |
+| 8. WLAN-Hotspot anlegen und starten, Gerätename im Hotspot | vorhandenes Profil bleibt; nur fehlende feste Adresse wird ergänzt |
+| 9. Administratorpasswort | vorhandenes bleibt |
+| 10. TLS-Zertifikat | bleibt, solange es zu Name und Hotspot-Adresse passt und mehr als 30 Tage gilt; ein selbstsigniertes wird sonst erneuert |
+| 11. Automatische Sicherheitsupdates | Konfiguration wird neu geschrieben |
+| 12. Anwendung aktivieren mit Health-Check und Rollback | antwortet das Dashboard nicht, wird das aktive Release neu aktiviert |
+
+Bei einem Abbruch nennt das Skript den Schritt; das vollständige Protokoll steht in `/var/log/screenable-player-install.log` (ohne Passwörter). Ursache beheben und erneut starten.
+
+### Optionen
+
+Optionen werden als Umgebungsvariablen übergeben und in `/etc/screenable-player/install.env` gespeichert, damit Updates und Rollbacks dieselben Einstellungen verwenden. Beim Aufruf gesetzte Werte haben Vorrang vor den gespeicherten. Beispiel: `sudo SCREENABLE_REBOOT_TIME=05:30 ./install.sh`
 
 | Variable | Standard | Wirkung |
 |---|---|---|
+| `SCREENABLE_HOTSPOT_CONNECTION` | `Giada-Hotspot` | NetworkManager-Profil des Hotspots |
+| `SCREENABLE_HOTSPOT_SSID` | `Giada-WIFI` | WLAN-Name, nur beim Anlegen des Profils |
+| `SCREENABLE_HOTSPOT_ADDRESS` | `10.42.0.1` | Feste Adresse des Geräts im Hotspot |
+| `SCREENABLE_ADMIN_INTERFACES` | WLAN-Gerät des Hotspots | Schnittstellen mit Verwaltungszugang, durch Leerzeichen getrennt |
+| `SCREENABLE_FIREWALL` | `1` | Eingehende Verbindungen nur über die Verwaltungsschnittstellen |
+| `SCREENABLE_LTE` | `auto` | LTE-Profil anlegen: `auto` nur mit erkanntem Modem, `1` immer, `0` nie |
+| `SCREENABLE_LTE_CONNECTION` | `Telekom-LTE` | NetworkManager-Profil für LTE |
+| `SCREENABLE_LTE_APN` | `internet.telekom` | APN, nur beim Anlegen des Profils |
+| `SCREENABLE_LTE_DNS` | `1.1.1.1 8.8.8.8` | IPv4-DNS-Server, nur beim Anlegen des Profils |
 | `SCREENABLE_KIOSK_LOCKDOWN` | `1` | Sperrt Konsolenwechsel (Strg+Alt+F1–F12) und Magic-SysRq für Geräte mit öffentlich zugänglicher Tastatur |
 | `SCREENABLE_UNATTENDED_UPGRADES` | `1` | Spielt Debian-Sicherheitsupdates (inkl. Chromium) automatisch ein |
 | `SCREENABLE_REBOOT_TIME` | `04:00` | Uhrzeit für Neustarts, die ein Update erfordert |
 | `SCREENABLE_KEEP_RELEASES` | `3` | Anzahl aufbewahrter Releases für Rollbacks |
-| `SCREENABLE_FIREWALL` | `1` | Eingehende Verbindungen nur aus dem Hotspot (siehe unten) |
-| `SCREENABLE_HOTSPOT_CONNECTION` | `Giada-Hotspot` | NetworkManager-Profil des Hotspots |
-| `SCREENABLE_ADMIN_INTERFACES` | Gerät des aktiven Hotspots, sonst `wlp2s0` | Schnittstellen mit Verwaltungszugang, durch Leerzeichen getrennt |
-| `SCREENABLE_HOTSPOT_ADDRESS` | `10.42.0.1` | Feste Adresse des Geräts im Hotspot |
 
-Beispiel: `sudo SCREENABLE_REBOOT_TIME=05:30 bash scripts/install-debian13.sh`. Beim Aufruf gesetzte Werte haben Vorrang vor den gespeicherten.
+### Ohne Rückfragen (viele Geräte)
+
+Passwörter, die noch fehlen, fragt das Skript am Terminal ab. Für eine automatisierte Einrichtung lassen sie sich übergeben; sie werden nirgends gespeichert oder protokolliert:
+
+```sh
+sudo SCREENABLE_ADMIN_PASSWORD='…' SCREENABLE_HOTSPOT_PSK='…' SCREENABLE_SIM_PIN= ./install.sh < /dev/null
+```
+
+`SCREENABLE_SIM_PIN=` (leer) bedeutet: SIM ohne PIN, nicht nachfragen. Der Hotspot verwendet WPA2 mit CCMP. Neue Profile legt das Skript als NetworkManager-Keyfiles (Rechte 0600) an, damit Passwörter nicht in Prozesslisten erscheinen.
 
 ## Netzwerkzugang
 
@@ -26,7 +60,7 @@ Im Hotspot ist das Dashboard erreichbar unter:
 - `https://10.42.0.1:8443` – feste Adresse, im NetworkManager-Profil eingetragen
 - `https://<hostname>.local:8443` – per mDNS (Avahi) und zusätzlich über den DNS des Hotspots, weil Android `.local`-Namen oft nicht per mDNS auflöst
 
-`scripts/configure-access.sh` setzt das um und läuft bei jeder Installation:
+`install.sh` setzt das in den Schritten 6 bis 8 um:
 
 | Baustein | Wirkung |
 |---|---|
@@ -35,7 +69,7 @@ Im Hotspot ist das Dashboard erreichbar unter:
 | `/etc/NetworkManager/dnsmasq-shared.d/screenable.conf` | Hotspot-DNS beantwortet `<hostname>.local` und `<hostname>` mit der Hotspot-Adresse |
 | `/etc/avahi/avahi-daemon.conf` | `allow-interfaces=` auf die Hotspot-Schnittstelle |
 
-Die Firewall nutzt eine eigene nftables-Tabelle (`inet screenable`) und ersetzt keine Regeln von NetworkManager (Hotspot-NAT, DHCP, DNS) oder Docker; `nftables.service` bleibt deaktiviert. Hotspot-Clients kommen weiterhin über LTE ins Internet. Änderungen an Hotspot-Adresse und -DNS wirken ab der nächsten Aktivierung des Hotspots, spätestens nach einem Neustart.
+Die Firewall nutzt eine eigene nftables-Tabelle (`inet screenable`) und ersetzt keine Regeln von NetworkManager (Hotspot-NAT, DHCP, DNS) oder Docker; `nftables.service` bleibt deaktiviert. Hotspot-Clients kommen weiterhin über LTE ins Internet. Änderungen an einem bestehenden Hotspot-Profil wirken ab der nächsten Aktivierung des Hotspots, spätestens nach einem Neustart; ein laufender Hotspot wird während der Installation nicht unterbrochen.
 
 Wird das Installationsskript per SSH über eine andere Schnittstelle ausgeführt, bleibt diese Sitzung bestehen, neue Verbindungen dorthin sind danach gesperrt. Für Ethernet als zusätzlichen Verwaltungszugang `SCREENABLE_ADMIN_INTERFACES="wlp2s0 eno1"` setzen; zum Abschalten `SCREENABLE_FIREWALL=0`. Den Zustand prüfen mit `sudo nft list table inet screenable`.
 
@@ -90,11 +124,11 @@ Chromium-eigene Kürzel zum Schließen (Strg+W, Strg+Umschalt+Q) lassen sich nic
 
 ## Updates und Rollback
 
-Neue Version auf einem Testgerät prüfen, dann auf dem Gerät bauen bzw. den Build kopieren und den Installer erneut ausführen:
+Neue Version auf einem Testgerät prüfen, dann das Installationspaket auf das Gerät kopieren und ausführen:
 
 ```sh
-npm ci && npm run build
-sudo bash scripts/install-debian13.sh
+tar xzf screenable-player-<version>.tar.gz && cd screenable-player-<version>
+sudo ./install.sh
 ```
 
 Der Installer legt ein neues Release an, installiert dessen Systemdateien, schaltet `current` um, startet API und Player neu und wartet auf `/api/v1/health`. Schlägt das fehl, aktiviert er automatisch das vorherige Release und entfernt das fehlerhafte. Konfiguration, Secrets und TLS-Schlüssel werden nie überschrieben. Änderungen an Xorg-Dateien wirken erst nach einem Neustart.

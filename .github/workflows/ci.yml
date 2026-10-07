@@ -26,6 +26,15 @@ jobs:
       - run: npm run build
       - run: npm test
       - run: npm audit --omit=dev --audit-level=high
+      - name: Installationspaket bauen
+        if: matrix.node == 20
+        run: bash scripts/package.sh
+      - uses: actions/upload-artifact@v4
+        if: matrix.node == 20
+        with:
+          name: screenable-player
+          path: release/*.tar.gz
+          if-no-files-found: error
 
   system-files:
     name: Skripte und Systemdateien
@@ -33,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get install -y --no-install-recommends libxml2-utils shellcheck nftables
-      - run: shellcheck scripts/*.sh scripts/xsession
+      - run: shellcheck install.sh scripts/*.sh scripts/xsession
       - run: xmllint --noout openbox/rc.xml avahi/screenable-player.service
       - run: for f in chromium/*.json config.example.json config.schema.json; do jq empty "$f"; done
       - name: Firewall-Regeln prüfen
