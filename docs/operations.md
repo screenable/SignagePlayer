@@ -77,14 +77,15 @@ Das Token wird nur für den Download verwendet und weder gespeichert noch protok
 
 ### Release veröffentlichen
 
-Releases entstehen automatisch über `.github/workflows/release.yml`, sobald auf `main` ein Versions-Tag gepusht wird. Der Tag muss zur Version in `package.json` passen:
+Releases entstehen automatisch: Bei jedem Merge auf `main` prüft `.github/workflows/release.yml`, ob es für die Version in `package.json` schon ein Release gibt. Wenn nicht, baut und testet er unter Node 20 (wie Debian 13), legt das Tag `v<version>` an und veröffentlicht `screenable-player.tar.gz` (fester Name für „neuestes Release“), `screenable-player-<version>.tar.gz` und `SHA256SUMS`. Ab dann installiert der `curl`-Befehl diese Version. Ein Merge ohne Versionsänderung veröffentlicht nichts.
+
+Für ein neues Release also im Pull Request die Version erhöhen:
 
 ```sh
-npm version 0.3.1 --no-git-tag-version   # Version erhöhen, committen, nach main mergen
-git tag v0.3.1 && git push origin v0.3.1
+npm version 0.3.1 --no-git-tag-version   # ändert package.json und package-lock.json
 ```
 
-Der Workflow baut und testet unter Node 20 (wie Debian 13) und veröffentlicht `screenable-player.tar.gz` (fester Name für „neuestes Release“), `screenable-player-<version>.tar.gz` und `SHA256SUMS`. Ab dann installiert der `curl`-Befehl diese Version.
+Ein Tag muss niemand von Hand setzen. Schlägt ein Release-Lauf fehl, lässt er sich unter *Actions → Release → Run workflow* auf `main` erneut starten.
 
 ## Netzwerkzugang
 
