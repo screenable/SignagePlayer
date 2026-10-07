@@ -1,0 +1,30 @@
+#!/usr/sbin/nft -f
+# Screenable-Firewall: Verwaltung (Dashboard, SSH, mDNS) nur aus dem Hotspot.
+# Eigene Tabelle ohne `flush ruleset`, damit die Regeln von NetworkManager
+# (Hotspot-NAT, DHCP/DNS) und Docker unberührt bleiben.
+# @ADMIN_INTERFACES@ ersetzt scripts/install-debian13.sh (SCREENABLE_ADMIN_INTERFACES).
+define admin_interfaces = { @ADMIN_INTERFACES@ }
+
+table inet screenable
+delete table inet screenable
+
+table inet screenable {
+  chain input {
+    type filter hook input priority filter; policy drop;
+    iifname "lo" accept
+    ct state established,related accept
+    ct state invalid drop
+    iifname $admin_interfaces accept
+    # IPv6 über LTE braucht Router Advertisements und Neighbor Discovery.
+    icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert, packet-too-big, destination-unreachable, time-exceeded, parameter-problem } accept
+    # DHCP-Antworten, falls Ethernet als Client per DHCP konfiguriert wird.
+    udp sport 67 udp dport 68 accept
+    ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept
+  }
+
+  chain forward {
+    type filter hook forward priority filter; policy accept;
+    # Von Docker veröffentlichte Ports (DNAT) nur aus dem Hotspot und von lokalen Containern.
+    ct state new ct status dnat iifname != $admin_interfaces iifname != { "docker0", "br-*", "veth*" } drop
+  }
+}

@@ -11,13 +11,16 @@ dir=/etc/screenable-player
 if [ "${1:-}" = '--if-missing' ] && [ -s "${dir}/tls.key" ] && [ -s "${dir}/tls.crt" ]; then exit 0; fi
 
 name=$(hostname -s)
+SCREENABLE_HOTSPOT_ADDRESS=10.42.0.1
+# shellcheck disable=SC1091
+if [ -f "${dir}/install.env" ]; then . "${dir}/install.env"; fi
 tmp=$(mktemp -d)
 trap 'rm -rf "${tmp}"' EXIT
 # 825 Tage und extendedKeyUsage=serverAuth: Mindestanforderungen von macOS/iOS,
 # auch für manuell vertraute Zertifikate. P-256 wird von allen Browsern unterstützt.
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -sha256 -days 825 -nodes \
   -keyout "${tmp}/tls.key" -out "${tmp}/tls.crt" -subj "/CN=${name}.local" \
-  -addext "subjectAltName=DNS:${name}.local,DNS:${name}" \
+  -addext "subjectAltName=DNS:${name}.local,DNS:${name},IP:${SCREENABLE_HOTSPOT_ADDRESS}" \
   -addext "extendedKeyUsage=serverAuth"
 
 install -d -o root -g root -m 0755 "${dir}"

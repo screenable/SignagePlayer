@@ -10,12 +10,38 @@
 | `SCREENABLE_UNATTENDED_UPGRADES` | `1` | Spielt Debian-Sicherheitsupdates (inkl. Chromium) automatisch ein |
 | `SCREENABLE_REBOOT_TIME` | `04:00` | Uhrzeit für Neustarts, die ein Update erfordert |
 | `SCREENABLE_KEEP_RELEASES` | `3` | Anzahl aufbewahrter Releases für Rollbacks |
+| `SCREENABLE_FIREWALL` | `1` | Eingehende Verbindungen nur aus dem Hotspot (siehe unten) |
+| `SCREENABLE_HOTSPOT_CONNECTION` | `Giada-Hotspot` | NetworkManager-Profil des Hotspots |
+| `SCREENABLE_ADMIN_INTERFACES` | Gerät des aktiven Hotspots, sonst `wlp2s0` | Schnittstellen mit Verwaltungszugang, durch Leerzeichen getrennt |
+| `SCREENABLE_HOTSPOT_ADDRESS` | `10.42.0.1` | Feste Adresse des Geräts im Hotspot |
 
-Beispiel: `sudo SCREENABLE_REBOOT_TIME=05:30 bash scripts/install-debian13.sh`
+Beispiel: `sudo SCREENABLE_REBOOT_TIME=05:30 bash scripts/install-debian13.sh`. Beim Aufruf gesetzte Werte haben Vorrang vor den gespeicherten.
+
+## Netzwerkzugang
+
+Das Gerät geht über LTE ins Internet und spannt einen eigenen WLAN-Hotspot auf. Verwaltet wird es **nur aus dem Hotspot**: Dashboard, SSH und mDNS sind ausschließlich dort erreichbar. Über LTE (IPv4 und die öffentliche IPv6-Adresse) nimmt das Gerät keine Verbindungen an; eine Fernwartung über LTE ist nicht vorgesehen.
+
+Im Hotspot ist das Dashboard erreichbar unter:
+
+- `https://10.42.0.1:8443` – feste Adresse, im NetworkManager-Profil eingetragen
+- `https://<hostname>.local:8443` – per mDNS (Avahi) und zusätzlich über den DNS des Hotspots, weil Android `.local`-Namen oft nicht per mDNS auflöst
+
+`scripts/configure-access.sh` setzt das um und läuft bei jeder Installation:
+
+| Baustein | Wirkung |
+|---|---|
+| `screenable-firewall.service` | Lädt `/etc/screenable-player/firewall.nft` vor dem Netzwerkstart. Eingehend nur Loopback, Antworten auf eigene Verbindungen und die Hotspot-Schnittstelle; für LTE nur IPv6-Router-Advertisements und Neighbor Discovery. Von Docker veröffentlichte Ports sind nur aus dem Hotspot und von lokalen Containern erreichbar. |
+| NetworkManager-Profil | `ipv4.addresses 10.42.0.1/24` im Hotspot-Profil, falls dort noch keine Adresse steht |
+| `/etc/NetworkManager/dnsmasq-shared.d/screenable.conf` | Hotspot-DNS beantwortet `<hostname>.local` und `<hostname>` mit der Hotspot-Adresse |
+| `/etc/avahi/avahi-daemon.conf` | `allow-interfaces=` auf die Hotspot-Schnittstelle |
+
+Die Firewall nutzt eine eigene nftables-Tabelle (`inet screenable`) und ersetzt keine Regeln von NetworkManager (Hotspot-NAT, DHCP, DNS) oder Docker; `nftables.service` bleibt deaktiviert. Hotspot-Clients kommen weiterhin über LTE ins Internet. Änderungen an Hotspot-Adresse und -DNS wirken ab der nächsten Aktivierung des Hotspots, spätestens nach einem Neustart.
+
+Wird das Installationsskript per SSH über eine andere Schnittstelle ausgeführt, bleibt diese Sitzung bestehen, neue Verbindungen dorthin sind danach gesperrt. Für Ethernet als zusätzlichen Verwaltungszugang `SCREENABLE_ADMIN_INTERFACES="wlp2s0 eno1"` setzen; zum Abschalten `SCREENABLE_FIREWALL=0`. Den Zustand prüfen mit `sudo nft list table inet screenable`.
 
 ## Zugriff und TLS
 
-Der Installer erstellt ein selbstsigniertes Zertifikat (ECDSA P-256, 825 Tage, `extendedKeyUsage=serverAuth`) für `<hostname>.local` unter `/etc/screenable-player`. Diese Werte sind die Mindestanforderungen von macOS/iOS, auch für manuell vertraute Zertifikate. Das Dashboard lauscht ausschließlich auf HTTPS-Port 8443. Das Zertifikat auf dem Verwaltungsgerät als vertrauenswürdig importieren oder durch ein Zertifikat der eigenen lokalen PKI ersetzen. Danach `sudo systemctl reload screenable-api` ausführen; die API lädt das Zertifikat ohne Neustart und ohne Sitzungen zu verlieren. Port 8443 nur im vertrauenswürdigen LAN/VPN freigeben; keine Weiterleitung ins Internet.
+Der Installer erstellt ein selbstsigniertes Zertifikat (ECDSA P-256, 825 Tage, `extendedKeyUsage=serverAuth`) für `<hostname>.local`, `<hostname>` und die Hotspot-Adresse unter `/etc/screenable-player`. Diese Werte sind die Mindestanforderungen von macOS/iOS, auch für manuell vertraute Zertifikate. Das Dashboard lauscht ausschließlich auf HTTPS-Port 8443. Das Zertifikat auf dem Verwaltungsgerät als vertrauenswürdig importieren oder durch ein Zertifikat der eigenen lokalen PKI ersetzen. Danach `sudo systemctl reload screenable-api` ausführen; die API lädt das Zertifikat ohne Neustart und ohne Sitzungen zu verlieren. Die Firewall beschränkt Port 8443 auf den Hotspot.
 
 Das Dashboard warnt 30 Tage vor Ablauf des Zertifikats. Neues selbstsigniertes Zertifikat erzeugen und laden:
 
@@ -23,9 +49,9 @@ Das Dashboard warnt 30 Tage vor Ablauf des Zertifikats. Neues selbstsigniertes Z
 sudo /opt/screenable-player/current/scripts/renew-tls.sh
 ```
 
-Geräte, die mit Version 0.1 installiert wurden, haben ein RSA-Zertifikat mit 365 Tagen Laufzeit und ohne `serverAuth`, das Apple-Geräte ablehnen. Dort einmal `renew-tls.sh` ausführen und das neue Zertifikat erneut importieren.
+Ältere Zertifikate enthalten die Hotspot-Adresse nicht (der Installer weist darauf hin); mit Version 0.1 erzeugte sind außerdem RSA-Zertifikate mit 365 Tagen Laufzeit ohne `serverAuth`, die Apple-Geräte ablehnen. Dort einmal `renew-tls.sh` ausführen und das neue Zertifikat erneut importieren.
 
-Avahi veröffentlicht den Hostnamen per mDNS und den `_https._tcp`-Dienst. Bei VLANs oder deaktiviertem Multicast die Geräte-IP beziehungsweise internes DNS verwenden; das Zertifikat muss dann zum verwendeten Namen passen.
+Avahi veröffentlicht den Hostnamen per mDNS und den `_https._tcp`-Dienst, nur im Hotspot.
 
 ## Passwort
 

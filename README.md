@@ -13,7 +13,7 @@ sudo bash scripts/install-debian13.sh
 sudo reboot
 ```
 
-Der Installer richtet getrennte Benutzer `screenable-api` und `screenable`, eine automatische Anmeldung auf `tty1`, Xorg/Openbox, systemd-Dienste, Avahi, Chromium-Richtlinien, automatische Sicherheitsupdates und ein selbstsigniertes TLS-Zertifikat ein. Er fragt beim ersten Lauf nach einem Administratorpasswort. Danach im LAN `https://<hostname>.local:8443` öffnen, dem lokalen Zertifikat auf dem Verwaltungsgerät vertrauen und eine HTTPS-Inhalts-URL speichern. Ohne konfigurierte URL bleibt der Player im Wartezustand.
+Der Installer richtet getrennte Benutzer `screenable-api` und `screenable`, eine automatische Anmeldung auf `tty1`, Xorg/Openbox, systemd-Dienste, Avahi, Chromium-Richtlinien, automatische Sicherheitsupdates und ein selbstsigniertes TLS-Zertifikat ein. Er fragt beim ersten Lauf nach einem Administratorpasswort. Verwaltet wird das Gerät nur aus seinem WLAN-Hotspot; über LTE nimmt es keine Verbindungen an. Danach im Hotspot `https://10.42.0.1:8443` oder `https://<hostname>.local:8443` öffnen, dem lokalen Zertifikat auf dem Verwaltungsgerät vertrauen und eine HTTPS-Inhalts-URL speichern. Ohne konfigurierte URL bleibt der Player im Wartezustand.
 
 Jede Installation wird als eigenes Release unter `/opt/screenable-player/releases` abgelegt und erst nach erfolgreichem Health-Check aktiv; sonst schaltet der Installer automatisch auf das vorherige Release zurück. Optionen (Kiosk-Sperren, Update-Neustartzeit, Anzahl Releases) und der Betrieb sind in [Betrieb](docs/operations.md) beschrieben.
 
@@ -49,6 +49,7 @@ Auf `http://127.0.0.1:8080` ist das Dashboard lokal erreichbar. Das Image wird v
 - Kiosk-Absicherung für öffentlich zugängliche Tastaturen: Openbox ohne Menüs und Tastenkürzel, Chromium-Richtlinien gegen Entwicklertools, Downloads, Dateidialoge und interne Seiten, optional gesperrter Konsolenwechsel.
 - Status und Aktionen über `/api/v1`; lokale Hardware-Testseite unter `/diagnostic.html`.
 - API separat vom X11-Player, sodass das Dashboard bei einem Browserabsturz erreichbar bleibt; gehärteter systemd-Dienst.
+- Firewall: Dashboard, SSH und mDNS nur aus dem Hotspot erreichbar, nicht über LTE (IPv4/IPv6); feste Hotspot-Adresse und Gerätename auch für Android-Clients auflösbar.
 - Versionierte Releases mit automatischem Rollback, Zertifikatserneuerung ohne Neustart, begrenzte persistente Logs.
 
 **Noch nicht umgesetzt:** Span/Independent, Audio-Sink-Auswahl, Debugging und sichere Offline-Inhaltsanzeige. Diese Bereiche sind für eine spätere Version geplant oder benötigen Messungen am Gerät.

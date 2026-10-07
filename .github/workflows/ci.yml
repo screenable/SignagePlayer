@@ -32,11 +32,15 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get install -y --no-install-recommends libxml2-utils shellcheck
+      - run: sudo apt-get install -y --no-install-recommends libxml2-utils shellcheck nftables
       - run: shellcheck scripts/*.sh scripts/xsession
       - run: xmllint --noout openbox/rc.xml avahi/screenable-player.service
       - run: for f in chromium/*.json config.example.json config.schema.json; do jq empty "$f"; done
+      - name: Firewall-Regeln prüfen
+        run: |
+          sed 's/@ADMIN_INTERFACES@/"wlp2s0", "eno1"/' system/firewall.nft > "$RUNNER_TEMP/firewall.nft"
+          sudo nft -c -f "$RUNNER_TEMP/firewall.nft"
       - name: systemd-Units prüfen
         run: |
           [ -e /usr/bin/node ] || sudo ln -s "$(command -v node)" /usr/bin/node
-          systemd-analyze verify systemd/screenable-api.service
+          systemd-analyze verify systemd/screenable-api.service systemd/screenable-firewall.service

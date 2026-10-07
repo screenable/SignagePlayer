@@ -6,6 +6,10 @@
 #   SCREENABLE_UNATTENDED_UPGRADES=1|0  Debian-Sicherheitsupdates automatisch einspielen (Standard 1)
 #   SCREENABLE_REBOOT_TIME=04:00        Uhrzeit für nötige Neustarts nach Updates
 #   SCREENABLE_KEEP_RELEASES=3          Anzahl aufbewahrter Releases für Rollbacks
+#   SCREENABLE_FIREWALL=1|0             Eingehende Verbindungen nur aus dem Hotspot (Standard 1)
+#   SCREENABLE_HOTSPOT_CONNECTION=…     NetworkManager-Profil des Hotspots (Standard Giada-Hotspot)
+#   SCREENABLE_ADMIN_INTERFACES=…       Schnittstellen mit Verwaltungszugang (Standard: Gerät des Hotspots)
+#   SCREENABLE_HOTSPOT_ADDRESS=10.42.0.1  feste Adresse des Geräts im Hotspot
 set -euo pipefail
 
 if [ "${EUID}" -ne 0 ]; then echo 'Bitte mit sudo ausführen.' >&2; exit 1; fi
@@ -15,15 +19,27 @@ if [ ! -f "${project_dir}/dist/api.js" ] || [ ! -f "${project_dir}/web/dist/inde
   echo 'Build fehlt. Zuerst npm ci && npm run build ausführen.' >&2; exit 1
 fi
 
+# Gespeicherte Optionen übernehmen; beim Aufruf gesetzte Variablen haben Vorrang.
 if [ -f /etc/screenable-player/install.env ]; then
-  # shellcheck disable=SC1091
-  . /etc/screenable-player/install.env
+  while IFS='=' read -r key value; do
+    [[ "${key}" =~ ^SCREENABLE_[A-Z_]+$ ]] || continue
+    [ -n "${!key+x}" ] || printf -v "${key}" '%s' "${value//\"/}"
+  done < /etc/screenable-player/install.env
 fi
 lockdown=${SCREENABLE_KIOSK_LOCKDOWN:-1}
 unattended=${SCREENABLE_UNATTENDED_UPGRADES:-1}
 reboot_time=${SCREENABLE_REBOOT_TIME:-04:00}
 keep=${SCREENABLE_KEEP_RELEASES:-3}
-[[ "${lockdown}" =~ ^[01]$ && "${unattended}" =~ ^[01]$ ]] || { echo 'Optionen müssen 0 oder 1 sein.' >&2; exit 1; }
+firewall=${SCREENABLE_FIREWALL:-1}
+hotspot_connection=${SCREENABLE_HOTSPOT_CONNECTION:-Giada-Hotspot}
+hotspot_address=${SCREENABLE_HOTSPOT_ADDRESS:-10.42.0.1}
+admin_interfaces=${SCREENABLE_ADMIN_INTERFACES:-}
+if [ -z "${admin_interfaces}" ] && command -v nmcli >/dev/null 2>&1; then
+  # Schnittstelle des aktiven Hotspots übernehmen (auf dem D613 wlp2s0).
+  admin_interfaces=$(nmcli -g GENERAL.DEVICES connection show "${hotspot_connection}" 2>/dev/null || true)
+fi
+admin_interfaces=${admin_interfaces:-wlp2s0}
+[[ "${lockdown}" =~ ^[01]$ && "${unattended}" =~ ^[01]$ && "${firewall}" =~ ^[01]$ ]] || { echo 'Optionen müssen 0 oder 1 sein.' >&2; exit 1; }
 [[ "${reboot_time}" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || { echo 'SCREENABLE_REBOOT_TIME im Format HH:MM angeben.' >&2; exit 1; }
 if ! [[ "${keep}" =~ ^[0-9]+$ ]] || [ "${keep}" -lt 2 ]; then echo 'SCREENABLE_KEEP_RELEASES muss mindestens 2 sein.' >&2; exit 1; fi
 
@@ -33,7 +49,7 @@ fi
 
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  xorg xinit openbox chromium nodejs avahi-daemon x11-xserver-utils xdotool dbus-user-session openssl
+  xorg xinit openbox chromium nodejs avahi-daemon x11-xserver-utils xdotool dbus-user-session openssl nftables
 # Optional: blendet den Mauszeiger im Leerlauf aus.
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends unclutter-xfixes \
   || echo 'Hinweis: unclutter-xfixes nicht installiert; Mauszeiger bleibt sichtbar.' >&2
@@ -50,6 +66,10 @@ SCREENABLE_KIOSK_LOCKDOWN=${lockdown}
 SCREENABLE_UNATTENDED_UPGRADES=${unattended}
 SCREENABLE_REBOOT_TIME=${reboot_time}
 SCREENABLE_KEEP_RELEASES=${keep}
+SCREENABLE_FIREWALL=${firewall}
+SCREENABLE_HOTSPOT_CONNECTION="${hotspot_connection}"
+SCREENABLE_ADMIN_INTERFACES="${admin_interfaces}"
+SCREENABLE_HOTSPOT_ADDRESS=${hotspot_address}
 EOF
 
 # Release anlegen. Der Name beginnt mit dem UTC-Zeitstempel, damit die Sortierung
@@ -67,7 +87,7 @@ for item in package.json README.md docs dist web/dist openbox systemd system ava
 done
 rm -rf "${release}/dist/tests"
 install -d -m 0755 "${release}/scripts"
-for script in xsession activate-release.sh rollback.sh renew-tls.sh; do
+for script in xsession activate-release.sh rollback.sh renew-tls.sh configure-access.sh; do
   install -m 0755 "${project_dir}/scripts/${script}" "${release}/scripts/${script}"
 done
 install -m 0644 "${project_dir}/scripts/diagnostic-server.mjs" "${release}/scripts/diagnostic-server.mjs"
@@ -82,6 +102,9 @@ if [ ! -f /var/lib/screenable-player/secrets.json ]; then
   runuser -u screenable-api -- /usr/bin/node "${release}/dist/cli.js" init
 fi
 "${release}/scripts/renew-tls.sh" --if-missing
+if ! openssl x509 -in /etc/screenable-player/tls.crt -noout -checkip "${hotspot_address}" | grep -q 'does match'; then
+  echo "Hinweis: Das Zertifikat enthält ${hotspot_address} nicht. Für Zugriff per IP: sudo ${base}/current/scripts/renew-tls.sh" >&2
+fi
 
 if [ "${unattended}" = 1 ]; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y unattended-upgrades
@@ -97,6 +120,8 @@ EOF
 else
   rm -f /etc/apt/apt.conf.d/52screenable-unattended-upgrades
 fi
+
+"${release}/scripts/configure-access.sh"
 
 if ! "${release}/scripts/activate-release.sh"; then
   if [ -n "${previous}" ] && [ -x "${previous}/scripts/activate-release.sh" ]; then
@@ -116,5 +141,5 @@ for ((i = 0; i < ${#releases[@]} - keep; i++)); do
   if [ "${r}" != "${release}" ] && [ "${r}" != "${previous}" ]; then rm -rf "${r}"; fi
 done
 
-echo "Installiert: ${name}. Dashboard: https://$(hostname -s).local:8443"
+echo "Installiert: ${name}. Dashboard im Hotspot: https://${hotspot_address}:8443 oder https://$(hostname -s).local:8443"
 echo 'Selbstsigniertes Zertifikat auf dem Verwaltungsgerät vertrauen. Nach der Erstinstallation das Gerät neu starten.'
