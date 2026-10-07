@@ -1,0 +1,20 @@
+[Unit]
+Description=Screenable firewall (administration only from the hotspot)
+Documentation=file:///opt/screenable-player/current/docs/operations.md
+# Wie nftables.service: vor dem Netzwerk laden, damit nie ungeschützt Verbindungen
+# über LTE angenommen werden.
+DefaultDependencies=no
+Wants=network-pre.target systemd-modules-load.service local-fs.target
+After=local-fs.target systemd-modules-load.service
+Before=network-pre.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/screenable-player/firewall.nft
+ExecReload=/usr/sbin/nft -f /etc/screenable-player/firewall.nft
+ExecStop=-/usr/sbin/nft delete table inet screenable
+
+[Install]
+WantedBy=sysinit.target

@@ -1,18 +1,23 @@
 {
   "name": "screenable-player",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json && npm run build:web",
-    "build:web": "vite build --config web/vite.config.ts",
+    "clean": "node -e \"for (const d of ['dist', 'web/dist']) require('fs').rmSync(d, { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc -p tsconfig.json && npm run build:web",
+    "build:web": "vue-tsc --noEmit -p web/tsconfig.json && vite build --config web/vite.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && vue-tsc --noEmit -p web/tsconfig.json",
     "dev:web": "vite --config web/vite.config.ts --host 127.0.0.1",
-    "dev:api": "node --watch --experimental-strip-types src/api.ts",
+    "dev:api": "tsc -p tsconfig.json && node --watch dist/api.js",
     "start:api": "node dist/api.js",
     "start:player": "node dist/player.js",
     "setup": "node dist/cli.js init",
-    "test": "node --test dist/tests/*.test.js"
+    "test": "node --test dist/tests/*.test.js",
+    "package": "npm run build && bash scripts/package.sh"
   },
   "dependencies": {
     "vue": "3.5.43"
@@ -21,6 +26,7 @@
     "@types/node": "24.13.5",
     "@vitejs/plugin-vue": "5.2.4",
     "typescript": "5.9.3",
-    "vite": "6.4.3"
+    "vite": "6.4.3",
+    "vue-tsc": "3.3.12"
   }
 }

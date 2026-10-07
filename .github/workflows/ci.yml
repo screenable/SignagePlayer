@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build und Tests (Node ${{ matrix.node }})
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        # 20 entspricht dem nodejs-Paket in Debian 13, 22 dem Docker-Image.
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: npm audit --omit=dev --audit-level=high
+      - name: Installationspaket bauen
+        if: matrix.node == 20
+        run: bash scripts/package.sh
+      - uses: actions/upload-artifact@v4
+        if: matrix.node == 20
+        with:
+          name: screenable-player
+          path: release/*.tar.gz
+          if-no-files-found: error
+
+  system-files:
+    name: Skripte und Systemdateien
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y --no-install-recommends libxml2-utils shellcheck nftables
+      - run: shellcheck install.sh scripts/*.sh scripts/xsession
+      - run: xmllint --noout openbox/rc.xml avahi/screenable-player.service
+      - run: for f in chromium/*.json config.example.json config.schema.json; do jq empty "$f"; done
+      - name: Firewall-Regeln prüfen
+        run: |
+          sed 's/@ADMIN_INTERFACES@/"wlp2s0", "eno1"/' system/firewall.nft > "$RUNNER_TEMP/firewall.nft"
+          sudo nft -c -f "$RUNNER_TEMP/firewall.nft"
+      - name: systemd-Units prüfen
+        run: |
+          [ -e /usr/bin/node ] || sudo ln -s "$(command -v node)" /usr/bin/node
+          systemd-analyze verify systemd/screenable-api.service systemd/screenable-firewall.service
