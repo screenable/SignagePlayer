@@ -1,16 +1,55 @@
 name: Release
 
-# Ein Tag wie v0.3.0 auf main baut, testet und veröffentlicht das Installationspaket.
+# Jeder Merge auf main mit einer neuen Version in package.json veröffentlicht
+# automatisch das Release v<version>. Ohne Versionsänderung passiert nichts.
 # Danach installiert `curl -fsSL …/install.sh | sudo bash` diese Version.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  check:
+    name: Neue Version?
+    runs-on: ubuntu-24.04
+    outputs:
+      publish: ${{ steps.version.outputs.publish }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$(jq -r .version package.json)"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release ${tag} existiert bereits. Für ein neues Release die Version in package.json erhöhen."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Ein von Hand gesetztes Tag ohne Release nur übernehmen, wenn es auf diesen Commit zeigt.
+          if git fetch --quiet --depth=1 origin "refs/tags/${tag}:refs/tags/${tag}" 2>/dev/null; then
+            tagged=$(git rev-parse "${tag}^{commit}")
+            if [ "${tagged}" != "${GITHUB_SHA}" ]; then
+              echo "::error::Tag ${tag} zeigt auf ${tagged}, nicht auf ${GITHUB_SHA}. Version erhöhen oder das Tag entfernen."
+              exit 1
+            fi
+          fi
+          echo "Veröffentliche ${tag}."
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
   release:
+    name: Bauen, testen, veröffentlichen
+    needs: check
+    if: needs.check.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -19,20 +58,14 @@ jobs:
           # Entspricht dem nodejs-Paket in Debian 13.
           node-version: 20
           cache: npm
-      - name: Tag und package.json abgleichen
-        run: |
-          version=$(node -p "require('./package.json').version")
-          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} passt nicht zur Version ${version} in package.json"
-            exit 1
-          fi
       - run: npm ci
       - run: npm run build
       - run: npm test
       - run: bash scripts/package.sh
-      - name: Release veröffentlichen
+      - name: Release mit Tag anlegen
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.check.outputs.tag }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" release/* \
-            --title "Screenable Player ${GITHUB_REF_NAME}" --generate-notes --verify-tag
+          gh release create "${TAG}" release/* --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" \
+            --title "Screenable Player ${TAG}" --generate-notes
