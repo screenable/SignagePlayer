@@ -2,7 +2,9 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 
 type Orientation = 'normal' | 'inverted' | 'left' | 'right';
-type Config = { revision: number; mode: 'single'; outputId: string | null; contentUrl: string | null; orientations?: Record<string, Orientation> };
+type Config = { revision: number; mode: 'single'; outputId: string | null; contentUrl: string | null; orientations?: Record<string, Orientation>; volume?: number };
+type App = { name: string; url: string; description: string | null };
+type AppList = { source: string; apps: App[]; fetchedAt: string | null; error: string | null };
 type Display = { id: string; primary: boolean; geometry: string | null; rotation?: Orientation };
 type Player = { state: string; browserPid: number | null; outputId: string | null; orientation?: Orientation | null; displays?: Display[]; network?: string; audioOutput?: string | null; lastError: string | null; updatedAt?: string };
 type Lte = { present: boolean; state: string | null; operator: string | null; technology: string | null; quality: number | null; bars: number; error: string | null };
@@ -15,6 +17,7 @@ const stateLabels: Record<string, { label: string; tone: 'ok' | 'warn' | 'bad' }
   restarting: { label: 'Startet neu', tone: 'warn' },
   waiting_for_url: { label: 'Kein Inhalt', tone: 'warn' },
   waiting_for_display: { label: 'Kein Display', tone: 'bad' },
+  waiting_for_network: { label: 'Wartet auf Internet', tone: 'warn' },
   error: { label: 'Fehler', tone: 'bad' },
   offline: { label: 'Player offline', tone: 'bad' },
   unknown: { label: 'Status unbekannt', tone: 'bad' },
@@ -49,6 +52,10 @@ const contentUrl = ref('');
 const outputId = ref('');
 const orientations = ref<Record<string, Orientation>>({});
 const update = ref<Update | null>(null);
+const volume = ref(100);
+const appCatalog = ref<AppList | null>(null);
+const suggestionsOpen = ref(false);
+const activeSuggestion = ref(-1);
 const busy = ref(false);
 const message = ref('');
 const error = ref('');
@@ -69,6 +76,50 @@ const lteLabel = computed(() => {
   if (!value.present) return value.error || 'Kein Modem';
   return [modemStates[value.state || ''] || value.state, value.operator, value.technology].filter(Boolean).join(' · ');
 });
+
+// Suche über Name, Beschreibung und Adresse; alle Suchbegriffe müssen vorkommen.
+const suggestions = computed(() => {
+  const apps = appCatalog.value?.apps || [];
+  const terms = contentUrl.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 1 && apps.some(app => app.url.toLowerCase() === terms[0])) return [];
+  return apps.filter(app => {
+    const haystack = `${app.name} ${app.description || ''} ${app.url}`.toLowerCase();
+    return terms.every(term => haystack.includes(term));
+  }).slice(0, 8);
+});
+const selectedApp = computed(() => appCatalog.value?.apps.find(app => app.url === contentUrl.value.trim()) || null);
+
+function chooseApp(app: App) {
+  contentUrl.value = app.url;
+  suggestionsOpen.value = false;
+  activeSuggestion.value = -1;
+}
+
+function suggestionKey(event: KeyboardEvent) {
+  const count = suggestions.value.length;
+  if (!suggestionsOpen.value || !count) return;
+  if (event.key === 'ArrowDown') { event.preventDefault(); activeSuggestion.value = (activeSuggestion.value + 1) % count; }
+  else if (event.key === 'ArrowUp') { event.preventDefault(); activeSuggestion.value = (activeSuggestion.value - 1 + count) % count; }
+  else if (event.key === 'Enter' && activeSuggestion.value >= 0) { event.preventDefault(); chooseApp(suggestions.value[activeSuggestion.value]); }
+  else if (event.key === 'Escape') suggestionsOpen.value = false;
+}
+
+// Verzögert schließen, damit ein Klick auf einen Vorschlag noch ankommt.
+function closeSuggestions() { setTimeout(() => { suggestionsOpen.value = false; }, 150); }
+
+async function loadApps(refresh = false) {
+  try { appCatalog.value = await request(`/apps${refresh ? '?refresh=1' : ''}`); }
+  catch (e) { if (e instanceof HttpError && e.status === 401) show(e); }
+}
+
+async function saveVolume() {
+  busy.value = true; error.value = ''; message.value = '';
+  try {
+    config.value = await request('/volume', { method: 'PUT', body: JSON.stringify({ volume: volume.value }) });
+    message.value = volume.value === 0 ? 'Ton stumm geschaltet.' : `Lautstärke auf ${volume.value} % gesetzt.`;
+  } catch (e) { show(e); }
+  finally { busy.value = false; }
+}
 
 function signedOut(text = '') {
   loggedIn.value = false; csrf.value = ''; config.value = null; status.value = null; update.value = null;
@@ -103,6 +154,8 @@ async function load() {
   contentUrl.value = c.contentUrl || '';
   outputId.value = c.outputId || '';
   orientations.value = { ...c.orientations };
+  volume.value = c.volume ?? 100;
+  void loadApps();
 }
 
 async function refreshStatus() {
@@ -189,7 +242,7 @@ onUnmounted(() => {
 <template>
   <main class="shell">
     <header class="topbar">
-      <div class="brand"><span class="brand-mark">S</span><span>Screenable <strong>Player</strong></span></div>
+      <div class="brand"><img class="brand-logo" src="/screenable-logo.png" alt="screenable" width="220" height="27" /><span class="brand-product">Player</span></div>
       <button v-if="loggedIn" class="text-button" @click="logout">Abmelden</button>
     </header>
 
@@ -218,8 +271,28 @@ onUnmounted(() => {
           <div class="card-heading"><span class="icon">↗</span><div><h2>Inhalt</h2><p>Die URL wird direkt im Chromium-Kiosk angezeigt.</p></div></div>
           <form @submit.prevent="save">
             <label for="url">Screenable-URL</label>
-            <input id="url" v-model="contentUrl" type="url" placeholder="https://example.com/inhalt" spellcheck="false" />
-            <p class="hint">HTTPS, oder HTTP auf localhost für Hardwaretests. Leer lassen, um die Anzeige zu pausieren.</p>
+            <div class="combo">
+              <input
+                id="url" v-model="contentUrl" type="text" inputmode="url" autocomplete="off" spellcheck="false"
+                placeholder="Anwendung suchen oder https://… eingeben"
+                role="combobox" aria-autocomplete="list" aria-controls="app-suggestions" :aria-expanded="suggestionsOpen && suggestions.length > 0"
+                @focus="suggestionsOpen = true" @input="suggestionsOpen = true; activeSuggestion = -1" @blur="closeSuggestions" @keydown="suggestionKey"
+              />
+              <ul v-if="suggestionsOpen && suggestions.length" id="app-suggestions" class="suggestions" role="listbox">
+                <li v-for="(app, index) in suggestions" :key="app.url" role="option" :aria-selected="index === activeSuggestion" :class="{ active: index === activeSuggestion }" @mousedown.prevent="chooseApp(app)">
+                  <strong>{{ app.name }}</strong>
+                  <span v-if="app.description">{{ app.description }}</span>
+                  <small>{{ app.url }}</small>
+                </li>
+              </ul>
+            </div>
+            <p v-if="selectedApp" class="hint selected-app">✓ {{ selectedApp.name }}</p>
+            <p class="hint">
+              Namen einer Screenable-Anwendung eintippen und aus der Liste wählen, oder eine eigene HTTPS-Adresse (HTTP nur für localhost) eingeben. Leer lassen, um die Anzeige zu pausieren.
+              <template v-if="appCatalog?.apps.length"> {{ appCatalog.apps.length }} Anwendungen verfügbar.</template>
+              <template v-else-if="appCatalog?.error"> {{ appCatalog.error }}</template>
+              <button type="button" class="link-button" @click="loadApps(true)">Liste aktualisieren</button>
+            </p>
             <label for="output">HDMI-Ausgang</label>
             <select id="output" v-model="outputId">
               <option value="">Automatisch (Primäranzeige)</option>
@@ -258,6 +331,13 @@ onUnmounted(() => {
             </div>
             <div><dt>Inhalteserver</dt><dd>{{ networkLabels[status?.player.network || ''] || '–' }}</dd></div>
             <div><dt>Tonausgabe</dt><dd>{{ status?.player.audioOutput || 'Kein HDMI-Ton' }}</dd></div>
+            <div class="volume-row">
+              <dt><label for="volume">Lautstärke</label></dt>
+              <dd class="volume">
+                <input id="volume" v-model.number="volume" type="range" min="0" max="100" step="5" :disabled="busy" @change="saveVolume" />
+                <span>{{ volume === 0 ? 'Stumm' : `${volume} %` }}</span>
+              </dd>
+            </div>
             <div><dt>Aktualisiert</dt><dd>{{ status?.player.updatedAt ? new Date(status.player.updatedAt).toLocaleTimeString('de-DE') : '–' }}</dd></div>
           </dl>
           <p v-if="status?.player.lastError" class="notice error">{{ status.player.lastError }}</p>

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { availableHdmiPorts, profileFor, routeHdmiAudio, sinkFor, type Card, type Sink } from '../audio.js';
+import { availableHdmiPorts, hasVolume, profileFor, routeHdmiAudio, sinkFor, type Card, type Sink } from '../audio.js';
 
 // Intel HDA ohne UCM: je HDMI-Port eigene Profile, analog als Standardprofil.
 const acp: Card = {
@@ -83,6 +83,39 @@ esac\n`);
       'set-sink-volume alsa_output.pci-0000_00_1f.3.hdmi-stereo-extra1 100%',
       'set-sink-mute alsa_output.pci-0000_00_1f.3.hdmi-stereo-extra1 0',
     ]);
+  } finally {
+    process.env.PATH = path;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Eingestellte Lautstärke wird wiederhergestellt, passende bleibt unverändert', async () => {
+  const sink = (percent: string): Sink => ({
+    name: 'alsa_output.hdmi', active_port: 'hdmi-output-1', properties: { 'alsa.card': '0' },
+    volume: { 'front-left': { value_percent: percent }, 'front-right': { value_percent: percent } },
+  });
+  assert.equal(hasVolume(sink('40%'), 40), true);
+  assert.equal(hasVolume(sink('100%'), 40), false);
+  assert.equal(hasVolume({ name: 'x' }, 40), false);
+  const dir = mkdtempSync(join(tmpdir(), 'screenable-audio-'));
+  const path = process.env.PATH;
+  try {
+    const card: Card = { ...acp, active_profile: 'output:hdmi-stereo-extra1' };
+    writeFileSync(join(dir, 'cards.json'), JSON.stringify([card]));
+    writeFileSync(join(dir, 'pactl'), `#!/bin/sh
+case "$*" in
+  '--format=json list cards') cat "${dir}/cards.json" ;;
+  '--format=json list sinks') cat "${dir}/sinks.json" ;;
+  get-default-sink) echo alsa_output.hdmi ;;
+  *) echo "$*" >> "${dir}/calls" ;;
+esac\n`);
+    chmodSync(join(dir, 'pactl'), 0o755);
+    process.env.PATH = `${dir}:${path}`;
+    writeFileSync(join(dir, 'sinks.json'), JSON.stringify([sink('100%')]));
+    assert.equal((await routeHdmiAudio(40)).changed, true);
+    assert.deepEqual(readFileSync(join(dir, 'calls'), 'utf8').trim().split('\n'), ['set-sink-volume alsa_output.hdmi 40%']);
+    writeFileSync(join(dir, 'sinks.json'), JSON.stringify([sink('40%')]));
+    assert.equal((await routeHdmiAudio(40)).changed, false);
   } finally {
     process.env.PATH = path;
     rmSync(dir, { recursive: true, force: true });

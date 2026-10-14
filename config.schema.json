@@ -18,6 +18,7 @@
       "propertyNames": { "pattern": "^[A-Za-z0-9_.-]{1,64}$" },
       "additionalProperties": { "enum": ["normal", "inverted", "left", "right"] }
     },
+    "volume": { "description": "Lautstärke des HDMI-Tons in Prozent; 0 schaltet stumm.", "type": "integer", "minimum": 0, "maximum": 100 },
     "recovery": {
       "type": "object",
       "additionalProperties": false,

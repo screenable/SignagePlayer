@@ -50,6 +50,9 @@ Auf `http://127.0.0.1:8080` ist das Dashboard lokal erreichbar. Das Image wird v
 - Ausrichtung je HDMI-Ausgang: Querformat, Querformat 180° oder Hochformat in beide Richtungen (`xrandr --rotate`).
 - Over-the-Air-Updates aus dem Dashboard: nach neuen GitHub-Releases suchen und sie einspielen, mit Prüfsumme, Health-Check und automatischem Rollback; die Installation übernimmt ein eigener root-Dienst, die API bleibt ohne Rechte.
 - LTE-Empfang im Dashboard: Modemzustand, Netzbetreiber, Funktechnik und Signal in fünf Balken.
+- Startbildschirm mit Screenable-Logo: Chromium startet erst, wenn der Inhalteserver erreichbar ist.
+- Lautstärkeregler für den HDMI-Ton im Dashboard, wirkt ohne Browserneustart.
+- URL-Eingabe mit Suche in den Screenable-Anwendungen (Liste von `screenable.app/lister2`).
 - Chromium-Kiosk mit Sandbox, eigenem Profil, Autoplay-Flag, Fokusversuch und begrenztem Neustart-Backoff; kein „Seiten wiederherstellen“-Hinweis nach Stromausfall.
 - Anzeige wird nie abgeschaltet (kein Bildschirmschoner/DPMS); nach dem Ein- und Ausschalten eines Monitors setzt der Player das Layout neu.
 - Kiosk-Absicherung für öffentlich zugängliche Tastaturen: Openbox ohne Menüs und Tastenkürzel, Chromium-Richtlinien gegen Entwicklertools, Downloads, Dateidialoge und interne Seiten, optional gesperrter Konsolenwechsel.

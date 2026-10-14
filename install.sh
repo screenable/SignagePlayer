@@ -221,7 +221,7 @@ ok "${PRETTY_NAME:-Debian}, $(uname -m)"
 step 'Systempakete'
 apt-get update -q
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q \
-  xorg xinit openbox chromium nodejs avahi-daemon x11-xserver-utils xdotool dbus-user-session openssl \
+  xorg xinit openbox chromium nodejs avahi-daemon x11-xserver-utils xdotool feh dbus-user-session openssl \
   nftables network-manager modemmanager \
   pipewire pipewire-pulse pipewire-alsa wireplumber pulseaudio-utils alsa-utils
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends unclutter-xfixes \
@@ -266,7 +266,7 @@ ok 'screenable-api (Dashboard), screenable (Kiosk)'
 # ---------------------------------------------------------------------------
 step 'Release vorbereiten'
 # install.sh gehört zum Release, damit der Update-Dienst damit neue Releases laden kann.
-payload=(install.sh package.json README.md docs dist web/dist openbox systemd system avahi chromium xorg)
+payload=(install.sh package.json README.md docs dist web/dist openbox systemd system avahi chromium xorg splash)
 scripts=(xsession activate-release.sh rollback.sh renew-tls.sh)
 checksum=$(cd "${project_dir}" && { find "${payload[@]}" -type f ! -path 'dist/tests/*' -print0; printf 'scripts/%s\0' "${scripts[@]}" diagnostic-server.mjs; } \
   | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)

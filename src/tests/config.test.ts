@@ -32,6 +32,14 @@ test('Ausrichtung je Ausgang', () => {
   }
 });
 
+test('Lautstärke', () => {
+  assert.equal(validateConfig(defaultConfig).volume, 100);
+  const { volume: _, ...legacy } = defaultConfig;
+  assert.equal(validateConfig(legacy).volume, 100);
+  assert.equal(validateConfig({ ...defaultConfig, volume: 0 }).volume, 0);
+  for (const volume of [-1, 101, 50.5, '50', null]) assert.throws(() => validateConfig({ ...defaultConfig, volume }), String(volume));
+});
+
 test('atomare Konfiguration, Revision und Backup', () => {
   const dir = mkdtempSync(join(tmpdir(), 'screenable-config-'));
   try {

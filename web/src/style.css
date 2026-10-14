@@ -15,5 +15,20 @@
 .release-notes{margin-top:20px;font-size:13px}
 .release-notes summary{cursor:pointer;font-weight:700;color:#23594b}
 .release-notes pre,.update-log{white-space:pre-wrap;word-break:break-word;background:#f5f7f5;border-radius:9px;padding:12px 14px;font-size:12px;max-height:260px;overflow:auto;margin:12px 0 0}
+
+.brand-logo{height:27px;width:auto;display:block}
+.brand-product{font-size:15px;font-weight:700;color:#41665d;letter-spacing:.02em;padding-left:10px;border-left:1px solid #dfe6e2}
+.combo{position:relative}
+.suggestions{position:absolute;z-index:10;left:0;right:0;top:calc(100% + 4px);margin:0;padding:6px;list-style:none;background:#fff;border:1px solid #d9e3de;border-radius:11px;box-shadow:0 14px 34px rgba(23,48,56,.12);max-height:340px;overflow:auto}
+.suggestions li{display:flex;flex-direction:column;gap:2px;padding:9px 11px;border-radius:8px;cursor:pointer;font-size:13px}
+.suggestions li span{color:#55716a;font-size:12px}
+.suggestions li small{color:#879893;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.suggestions li:hover,.suggestions li.active{background:#eef7f2}
+.selected-app{color:#14704e;font-weight:700;margin:8px 0 0}
+.link-button{background:none;border:0;padding:0;color:#147b62;font-size:12px;text-decoration:underline;margin-left:4px}
+.volume-row dt label{margin:0;font-size:13px;font-weight:400}
+.volume{display:flex;align-items:center;gap:10px}
+.card .volume input{width:150px;height:auto;padding:0;border:0;background:none;accent-color:#0d6956;box-shadow:none}
+.volume span{min-width:48px;text-align:right}
 footer{color:#9dad9f;font-size:12px;margin:40px 0}.login{max-width:450px;margin:86px auto}.login h1{font-size:31px;margin-bottom:10px}.login form{margin-top:32px}.login .primary{width:100%}@media(max-width:760px){.shell{padding:0 18px}.topbar{height:70px}.page-heading{margin:35px 0 24px;align-items:start;gap:12px}.page-heading h1{font-size:30px}.state-pill{font-size:11px;white-space:nowrap}.grid{grid-template-columns:1fr}.card{padding:23px}
 .orientation-row{grid-template-columns:1fr;gap:6px}.login{margin:60px auto}}

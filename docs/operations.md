@@ -256,6 +256,18 @@ aplay -l   # erscheint keine Karte: firmware-sof-signed installieren und neu sta
 
 Automatische Umschaltung abschalten (z. B. für Klinke): `systemctl --user -M screenable@ edit screenable-player` mit `Environment=SCREENABLE_AUDIO_ROUTING=0`.
 
+Die Lautstärke stellt der Regler „Lautstärke“ im Dashboard ein (0–100 %, 0 = stumm; Standard 100 %). Der Player setzt sie sofort und bei jeder Prüfung erneut, auch wenn sie am Gerät verstellt wurde. Der Browser startet dafür nicht neu. Gespeichert wird sie in `config.json` unter `volume`.
+
+## Startbildschirm und Netzverbindung
+
+Chromium startet erst, wenn der Server der Inhalts-URL per TCP erreichbar ist; so erscheint nach dem Einschalten nie eine Chromium-Fehlerseite, nur weil LTE noch nicht verbunden ist. Bis dahin zeigt der Bildschirm das Screenable-Logo (`splash/` im Release, je nach Ausrichtung Quer- oder Hochformat) als Desktop-Hintergrund; der Player-Status lautet „Wartet auf Internet“ und die Prüfung läuft alle zwei Sekunden. Der Hintergrund bleibt auch während eines Browser-Neustarts sichtbar. Fällt das Netz bei laufendem Browser aus, läuft dieser weiter und lädt die Seite nach der Rückkehr neu.
+
+Das gilt für jeden Browserstart, auch nach einem Absturz. Für Inhalte, die ohne Netz funktionieren, lässt sich das Warten abschalten: `systemctl --user -M screenable@ edit screenable-player` mit `Environment=SCREENABLE_WAIT_FOR_NETWORK=0`. Den Hintergrund setzt `feh`; fehlt es, bleibt der Bildschirm weiß.
+
+## Anwendungen auswählen
+
+Das Feld „Screenable-URL“ durchsucht beim Tippen die Screenable-Anwendungen (Name, Beschreibung und Adresse) und schlägt bis zu acht Treffer vor; Pfeiltasten und Enter wählen aus. Eine eigene HTTPS-Adresse kann weiterhin direkt eingegeben werden. Die Liste lädt die API von `https://screenable.app/lister2` (JSON oder HTML-Links, nur HTTPS-Adressen) und hält sie 15 Minuten vor; „Liste aktualisieren“ lädt sie sofort neu. Ohne Internet bleibt die zuletzt geladene Liste nutzbar. Eine andere Quelle per Drop-in für `screenable-api.service`: `Environment=SCREENABLE_APPS_URL=…`.
+
 ## Bildausrichtung
 
 Im Dashboard lässt sich je HDMI-Ausgang die Ausrichtung wählen; sie gilt, sobald dieser Ausgang aktiv ist, auch bei „Automatisch“:

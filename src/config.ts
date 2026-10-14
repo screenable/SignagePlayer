@@ -17,6 +17,8 @@ export type Config = {
   contentUrl: string | null;
   // Ausrichtung je HDMI-Ausgang; fehlende Ausgänge laufen im Querformat.
   orientations: Record<string, Orientation>;
+  // Lautstärke des HDMI-Tons in Prozent; 0 schaltet stumm.
+  volume: number;
   recovery: { browserRestartDelaySeconds: number; maxRapidRestarts: number };
 };
 
@@ -27,6 +29,7 @@ export const defaultConfig: Config = {
   outputId: null,
   contentUrl: null,
   orientations: {},
+  volume: 100,
   recovery: { browserRestartDelaySeconds: 5, maxRapidRestarts: 5 },
 };
 
@@ -44,6 +47,9 @@ export function validateConfig(value: unknown): Config {
   }
   if (c.contentUrl !== null) validateContentUrl(c.contentUrl);
   const orientationMap = validateOrientations(c.orientations);
+  // Ältere Konfigurationen ohne Lautstärke spielen wie bisher mit 100 %.
+  const volume = c.volume === undefined ? 100 : c.volume;
+  if (!Number.isInteger(volume) || (volume as number) < 0 || (volume as number) > 100) throw new ValidationError('Lautstärke muss zwischen 0 und 100 liegen.');
   if (!c.recovery || typeof c.recovery !== 'object' || Array.isArray(c.recovery)) throw new ValidationError('Recovery-Einstellungen fehlen.');
   const recovery = c.recovery as Record<string, unknown>;
   const delay = recovery.browserRestartDelaySeconds;
@@ -52,7 +58,7 @@ export function validateConfig(value: unknown): Config {
   if (!Number.isInteger(max) || (max as number) < 1 || (max as number) > 20) throw new ValidationError('Ungültige Neustartgrenze.');
   return {
     schemaVersion: 1, revision: c.revision as number, mode: 'single',
-    outputId: c.outputId as string | null, contentUrl: c.contentUrl as string | null, orientations: orientationMap,
+    outputId: c.outputId as string | null, contentUrl: c.contentUrl as string | null, orientations: orientationMap, volume: volume as number,
     recovery: { browserRestartDelaySeconds: delay as number, maxRapidRestarts: max as number },
   };
 }

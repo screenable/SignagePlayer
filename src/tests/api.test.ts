@@ -22,7 +22,7 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-async function startApi(options: { secrets?: boolean } = {}) {
+async function startApi(options: { secrets?: boolean; env?: Record<string, string> } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'screenable-api-'));
   const runtime = join(dir, 'run');
   atomicWrite(join(dir, 'config.json'), JSON.stringify(defaultConfig));
@@ -30,7 +30,7 @@ async function startApi(options: { secrets?: boolean } = {}) {
   const port = await freePort();
   const child = spawn(process.execPath, ['dist/api.js'], {
     cwd: process.cwd(), stdio: 'ignore',
-    env: { ...process.env, SCREENABLE_STATE_DIR: dir, SCREENABLE_RUN_DIR: runtime, SCREENABLE_PORT: String(port), SCREENABLE_HOST: '127.0.0.1' },
+    env: { ...process.env, SCREENABLE_STATE_DIR: dir, SCREENABLE_RUN_DIR: runtime, SCREENABLE_PORT: String(port), SCREENABLE_HOST: '127.0.0.1', ...options.env },
   });
   const origin = `http://127.0.0.1:${port}`;
   const base = `${origin}/api/v1`;
@@ -248,6 +248,46 @@ test('Over-the-Air-Update: suchen, installieren, Fehler melden', { timeout: 30_0
     assert.match(update.error!, /nicht erreichbar/);
   } finally {
     github.close();
+    await api.stop();
+  }
+});
+
+test('Lautstärke und Anwendungsliste', async () => {
+  let requests = 0;
+  let available = true;
+  const lister = createHttpServer((req, res) => {
+    requests++;
+    if (!available) { res.writeHead(503).end(); return; }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify([{ name: 'Memory', url: 'https://screenable.app/play/memory' }, { name: 'Quiz', url: 'https://screenable.app/play/quiz' }]));
+  });
+  lister.listen(0, '127.0.0.1');
+  await once(lister, 'listening');
+  const { port } = lister.address() as { port: number };
+  const api = await startApi({ env: { SCREENABLE_APPS_URL: `http://127.0.0.1:${port}/lister2` } });
+  try {
+    const login = await api.login();
+    const { csrf } = await login.json() as { csrf: string };
+    const headers = { cookie: login.headers.get('set-cookie')!.split(';')[0], 'content-type': 'application/json', 'x-csrf-token': csrf };
+    const volume = (value: unknown) => fetch(`${api.base}/volume`, { method: 'PUT', headers, body: JSON.stringify({ volume: value }) });
+    assert.equal((await volume(120)).status, 400);
+    const saved = await (await volume(35)).json() as { volume: number; revision: number };
+    assert.deepEqual([saved.volume, saved.revision], [35, 1]);
+    // Das Formular überschreibt die Lautstärke nicht, wenn es sie nicht mitschickt.
+    const form = await (await fetch(`${api.base}/config`, { method: 'PUT', headers: { ...headers, 'if-match': '1' }, body: JSON.stringify({ contentUrl: null, outputId: null }) })).json() as { volume: number };
+    assert.equal(form.volume, 35);
+
+    const list = await (await fetch(`${api.base}/apps`, { headers })).json() as { apps: { name: string }[]; error: string | null };
+    assert.deepEqual(list.apps.map(a => a.name), ['Memory', 'Quiz']);
+    await fetch(`${api.base}/apps`, { headers });
+    assert.equal(requests, 1, 'Liste wird zwischengespeichert');
+    // Ohne Netz bleibt die zuletzt geladene Liste verfügbar.
+    available = false;
+    const offline = await (await fetch(`${api.base}/apps?refresh=1`, { headers })).json() as { apps: unknown[]; error: string | null };
+    assert.equal(offline.apps.length, 2);
+    assert.match(offline.error!, /nicht abrufbar/);
+  } finally {
+    lister.close();
     await api.stop();
   }
 });

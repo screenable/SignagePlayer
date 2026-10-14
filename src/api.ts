@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { readSecrets, verifyPassword, type Secrets } from './auth.js';
 import { atomicWrite, ConflictError, readConfig, saveConfig, ValidationError } from './config.js';
 import { errorText, log, version } from './log.js';
+import { appList } from './apps.js';
 import { lteStatus } from './modem.js';
 import { commandPath, configPath, secretPath, statusPath, updateRequestPath, updateStatusPath } from './paths.js';
 import { isNewer, readJson, readUpdateRequest, REQUEST_MAX_AGE_MS, type UpdateStatus } from './update.js';
@@ -282,13 +283,24 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       if (!match || !/^"?[0-9]+"?$/.test(match.toString())) { json(res, 428, { error: 'If-Match mit Revision erforderlich.' }); return; }
       const current = readConfig(configPath);
       const data = await body(req);
-      const next = { ...current, outputId: data.outputId, contentUrl: data.contentUrl, orientations: data.orientations ?? current.orientations };
+      const next = { ...current, outputId: data.outputId, contentUrl: data.contentUrl, orientations: data.orientations ?? current.orientations, volume: data.volume ?? current.volume };
       const updated = saveConfig(configPath, next, Number(match.toString().replaceAll('"', '')));
       log('info', 'config_updated', { ip: clientIp(req), revision: updated.revision, outputId: updated.outputId, orientations: updated.orientations, hasContentUrl: !!updated.contentUrl });
       json(res, 200, updated); return;
     }
     if (pathname === '/api/v1/status' && req.method === 'GET') {
       json(res, 200, { version, apiUptimeSeconds: Math.floor((Date.now() - startedAt) / 1000), tls: tlsStatus(), player: playerStatus(), lte: await lteStatus() }); return;
+    }
+    // Lautstärke direkt vom Schieberegler, unabhängig vom übrigen Formular.
+    if (pathname === '/api/v1/volume' && req.method === 'PUT') {
+      const data = await body(req);
+      const current = readConfig(configPath);
+      const updated = saveConfig(configPath, { ...current, volume: data.volume }, current.revision);
+      log('info', 'volume_updated', { ip: clientIp(req), revision: updated.revision, volume: updated.volume });
+      json(res, 200, updated); return;
+    }
+    if (pathname === '/api/v1/apps' && req.method === 'GET') {
+      json(res, 200, await appList(new URL(req.url || '/', 'http://localhost').searchParams.get('refresh') === '1')); return;
     }
     if (pathname === '/api/v1/update' && req.method === 'GET') { json(res, 200, updateStatus()); return; }
     if ((pathname === '/api/v1/update/check' || pathname === '/api/v1/update/install') && req.method === 'POST') {

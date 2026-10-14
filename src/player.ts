@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, readlinkSync, unlinkSync } from 'node:fs';
 import { connect } from 'node:net';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { routeHdmiAudio } from './audio.js';
 import { atomicWrite, orientationFor, readConfig, type Config, type Orientation } from './config.js';
@@ -24,9 +25,13 @@ const WAIT_FOR_DISPLAY_MS = 5000;
 const MAX_BACKOFF_SECONDS = 60;
 const RAPID_RESTART_WINDOW_MS = 60_000;
 const COMMAND_MAX_AGE_MS = 60_000;
+// Chromium erst starten, wenn der Inhalteserver erreichbar ist; bis dahin zeigt der
+// Desktop-Hintergrund das Screenable-Logo. SCREENABLE_WAIT_FOR_NETWORK=0 schaltet das ab.
+const WAIT_FOR_NETWORK = process.env.SCREENABLE_WAIT_FOR_NETWORK !== '0';
+const splashDir = process.env.SCREENABLE_SPLASH_DIR || fileURLToPath(new URL('../splash/', import.meta.url));
 
 type Display = { id: string; primary: boolean; geometry: string | null; rotation: Orientation };
-type State = 'waiting_for_url' | 'waiting_for_display' | 'running' | 'restarting' | 'error';
+type State = 'waiting_for_url' | 'waiting_for_display' | 'waiting_for_network' | 'running' | 'restarting' | 'error';
 let config: Config | null = null;
 let browser: ChildProcess | null = null;
 let browserStartedAt: string | null = null;
@@ -34,6 +39,8 @@ let selectedOutput: string | null = null;
 let activeLayout: string | null = null;
 let pendingLayout: string | null = null;
 let displayLost = false;
+// Layout für den Browser gesetzt, Start wartet nur noch auf das Netz.
+let layoutReady = false;
 let displays: Display[] = [];
 let state: State = 'waiting_for_url';
 let lastError: string | null = null;
@@ -209,7 +216,23 @@ function scheduleRetry(next: Config, reason: string): void {
   log('error', 'browser_launch_failed', { error: reason, delay, failures: launchFailures });
 }
 
+// Logo als Desktop-Hintergrund: sichtbar, solange kein Browser läuft (Warten auf das
+// Netz, Neustart nach Absturz). Als Hintergrund nimmt es keine Eingaben an.
+async function showSplash(output: string): Promise<void> {
+  const size = displays.find(d => d.id === output)?.geometry?.match(/^(\d+)x(\d+)/);
+  const portrait = !!size && Number(size[2]) > Number(size[1]);
+  const image = join(splashDir, `splash-${portrait ? 'portrait' : 'landscape'}.png`);
+  try {
+    await exec('feh', ['--no-fehbg', '--bg-fill', image], { timeout: 5000 });
+    problem('splash_failed', null);
+  } catch (error) {
+    problem('splash_failed', errorText(error));
+    try { await exec('xsetroot', ['-solid', 'white'], { timeout: 5000 }); } catch { /* Ohne Hintergrund weiter. */ }
+  }
+}
+
 async function launchBrowser(next: Config): Promise<void> {
+  if (layoutReady && selectedOutput && activeLayout) { await startBrowser(next, selectedOutput); return; }
   displays = await detectDisplays(true);
   const output = chooseOutput(next, displays);
   if (!output) {
@@ -231,6 +254,22 @@ async function launchBrowser(next: Config): Promise<void> {
   pendingLayout = null;
   displayLost = false;
   nextDisplayCheck = Date.now() + DISPLAY_CHECK_MS;
+  await showSplash(output);
+  layoutReady = true;
+  await startBrowser(next, output);
+}
+
+async function startBrowser(next: Config, output: string): Promise<void> {
+  if (WAIT_FOR_NETWORK && network !== 'online') {
+    if (state !== 'waiting_for_network') log('info', 'waiting_for_network', { host: new URL(next.contentUrl!).hostname });
+    state = 'waiting_for_network';
+    lastError = network === 'offline' ? 'Inhalteserver nicht erreichbar; Browser startet, sobald eine Verbindung besteht.' : null;
+    restartAt = 0;
+    runNetworkCheck();
+    return;
+  }
+  layoutReady = false;
+  const rotation = orientationFor(next, output);
   const profile = join(stateDir, 'profiles', 'single');
   prepareProfile(profile);
   if (shuttingDown) return;
@@ -290,6 +329,11 @@ async function checkDisplays(): Promise<void> {
   try { current = await detectDisplays(false); problem('display_check_failed', null); }
   catch (error) { problem('display_check_failed', errorText(error)); return; }
   displays = current;
+  if (!browser && layoutReady && selectedOutput) {
+    // Während des Wartens auf das Netz: geänderte Anzeige beim Start neu einrichten.
+    if (layoutKey(selectedOutput, current) !== activeLayout) layoutReady = false;
+    return;
+  }
   if (!browser || !config) return;
   const target = config.outputId || selectedOutput;
   if (!target || !current.some(d => d.id === target)) {
@@ -338,6 +382,14 @@ async function handleCommand(): Promise<void> {
   }
 }
 
+function hostOf(url: string | null | undefined): string | null {
+  return url ? new URL(url).host : null;
+}
+
+function sameExceptVolume(a: Config, b: Config): boolean {
+  return JSON.stringify({ ...a, revision: 0, volume: 0 }) === JSON.stringify({ ...b, revision: 0, volume: 0 });
+}
+
 async function tick(): Promise<void> {
   let next: Config | null = null;
   try { next = readConfig(configPath); problem('config_read_failed', null); }
@@ -346,9 +398,18 @@ async function tick(): Promise<void> {
     problem('config_read_failed', errorText(error));
     if (!config) { state = 'error'; lastError = `Konfiguration nicht lesbar: ${errorText(error)}`; return; }
   }
-  if (next && (!config || next.revision !== config.revision)) {
-    await stopBrowser();
+  if (next && config && next.revision !== config.revision && sameExceptVolume(config, next)) {
+    // Nur die Lautstärke geändert: ohne Browserneustart übernehmen.
     config = next;
+    log('info', 'volume_applied', { revision: next.revision, volume: next.volume });
+    runAudioCheck();
+  } else if (next && (!config || next.revision !== config.revision)) {
+    await stopBrowser();
+    const hostChanged = hostOf(config?.contentUrl) !== hostOf(next.contentUrl);
+    config = next;
+    // Erreichbarkeit gilt je Inhalteserver; einen neuen Host zuerst prüfen.
+    if (hostChanged) { network = 'unknown'; networkFailures = 0; }
+    layoutReady = false;
     rapidRestarts = 0;
     launchFailures = 0;
     restartAt = 0;
@@ -406,7 +467,7 @@ async function checkNetwork(): Promise<void> {
 // Monitor seine Audiofähigkeit (ELD) erst kurz nach dem Einschalten meldet.
 async function checkAudio(): Promise<void> {
   try {
-    const result = await routeHdmiAudio();
+    const result = await routeHdmiAudio(config?.volume ?? 100);
     audioOutput = result.sink ? result.description : null;
     problem('audio_check_failed', null);
     problem('audio_unavailable', result.error);
