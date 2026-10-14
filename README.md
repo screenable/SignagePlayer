@@ -12,7 +12,7 @@ Direkt von GitHub, mit dem neuesten Release:
 curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo bash
 ```
 
-Das Skript lädt das fertig gebaute Paket des Releases, prüft dessen SHA-256-Prüfsumme und installiert es; auf dem Gerät ist kein npm nötig. Eine bestimmte Version: `… | sudo SCREENABLE_VERSION=v0.3.0 bash`. Solange das Repository privat ist, braucht der Download ein Lese-Token (siehe [Betrieb](docs/operations.md#installation-von-github)).
+Das Skript lädt das fertig gebaute Paket des Releases, prüft dessen SHA-256-Prüfsumme und installiert es; auf dem Gerät ist kein npm nötig. Eine bestimmte Version: `… | sudo SCREENABLE_VERSION=v0.4.0 bash`. Solange das Repository privat ist, braucht der Download ein Lese-Token (siehe [Betrieb](docs/operations.md#installation-von-github)).
 
 Alternativ aus einem entpackten Installationspaket (`npm run package`) oder Git-Checkout: `sudo ./install.sh`. Im Checkout baut das Skript bei Bedarf selbst (als aufrufender Benutzer, installiert dafür npm).
 
