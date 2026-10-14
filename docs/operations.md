@@ -109,6 +109,36 @@ Die Firewall nutzt eine eigene nftables-Tabelle (`inet screenable`) und ersetzt 
 
 Wird das Installationsskript per SSH über eine andere Schnittstelle ausgeführt, bleibt diese Sitzung bestehen, neue Verbindungen dorthin sind danach gesperrt. Für Ethernet als zusätzlichen Verwaltungszugang `SCREENABLE_ADMIN_INTERFACES="wlp2s0 eno1"` setzen; zum Abschalten `SCREENABLE_FIREWALL=0`. Den Zustand prüfen mit `sudo nft list table inet screenable`.
 
+### Mobilfunk prüfen
+
+Der Installer wartet bis zu 60 s auf das Modem, prüft danach die LTE-Verbindung und gibt bei einem Fehler den Modemzustand aus. Am Gerät:
+
+```sh
+nmcli device status                      # gsm-Gerät: "verbunden"?
+nmcli radio wwan                         # muss "enabled" sein, sonst: sudo nmcli radio wwan on
+mmcli -L && mmcli -m any                 # State, Failed reason, SIM, Signal, Operator
+nmcli -g gsm.apn connection show Telekom-LTE
+journalctl -u ModemManager -u NetworkManager -b | grep -iE 'modem|gsm|bearer' | tail -n 40
+```
+
+| Befund in `mmcli -m any` | Ursache und Abhilfe |
+|---|---|
+| keine Modemliste | Modul nicht erkannt: BIOS (WWAN aktiviert?), `rfkill list`, `lsusb` |
+| `state: locked`, `lock: sim-pin` | PIN fehlt oder falsch, Profil neu anlegen (siehe unten) |
+| `failed reason: sim-missing` | SIM nicht gesteckt oder falsch eingelegt |
+| `power state: low`, `state: disabled` und `FCC lock` im Journal | FCC-Sperre des Moduls: `sudo ln -s /usr/share/ModemManager/fcc-unlock.available.d/<vid:pid> /etc/ModemManager/fcc-unlock.d/` |
+| `registered`, aber kein Bearer/IP | falscher APN: die Vorgabe `internet.telekom` passt nur für Telekom-SIMs |
+| `signal quality` sehr niedrig, `searching` | Antennen prüfen |
+
+Ein vorhandenes LTE-Profil ändert der Installer nicht. Für andere PIN oder APN das Profil löschen und neu anlegen lassen, z. B. für Vodafone:
+
+```sh
+sudo nmcli connection delete Telekom-LTE
+curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo SCREENABLE_LTE_APN=web.vodafone.de bash
+```
+
+Gängige APNs: Telekom `internet.telekom`, Vodafone `web.vodafone.de`, O2 `internet`, 1&1 `web.vodafone.de` oder `internet` (je nach Netz).
+
 ## Zugriff und TLS
 
 Der Installer erstellt ein selbstsigniertes Zertifikat (ECDSA P-256, 825 Tage, `extendedKeyUsage=serverAuth`) für `<hostname>.local`, `<hostname>` und die Hotspot-Adresse unter `/etc/screenable-player`. Diese Werte sind die Mindestanforderungen von macOS/iOS, auch für manuell vertraute Zertifikate. Das Dashboard lauscht ausschließlich auf HTTPS-Port 8443. Das Zertifikat auf dem Verwaltungsgerät als vertrauenswürdig importieren oder durch ein Zertifikat der eigenen lokalen PKI ersetzen. Danach `sudo systemctl reload screenable-api` ausführen; die API lädt das Zertifikat ohne Neustart und ohne Sitzungen zu verlieren. Die Firewall beschränkt Port 8443 auf den Hotspot.
