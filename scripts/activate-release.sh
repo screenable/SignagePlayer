@@ -17,6 +17,8 @@ if [ -f /etc/screenable-player/install.env ]; then . /etc/screenable-player/inst
 put() { install -D -o root -g root -m 0644 "${release}/$1" "$2"; }
 put systemd/screenable-api.service /etc/systemd/system/screenable-api.service
 put systemd/screenable-player.service /etc/systemd/user/screenable-player.service
+put systemd/screenable-lte-watchdog.service /etc/systemd/system/screenable-lte-watchdog.service
+put systemd/screenable-lte-watchdog.timer /etc/systemd/system/screenable-lte-watchdog.timer
 put system/tmpfiles.conf /etc/tmpfiles.d/screenable-player.conf
 put system/journald.conf /etc/systemd/journald.conf.d/screenable-player.conf
 put avahi/screenable-player.service /etc/avahi/services/screenable-player.service
@@ -53,7 +55,8 @@ systemctl daemon-reload
 systemctl --global enable pipewire.socket pipewire-pulse.socket wireplumber.service >/dev/null 2>&1 || true
 systemd-tmpfiles --create /etc/tmpfiles.d/screenable-player.conf
 systemctl restart systemd-journald.service
-systemctl enable avahi-daemon.service screenable-api.service getty@tty1.service >/dev/null
+systemctl enable avahi-daemon.service screenable-api.service getty@tty1.service screenable-lte-watchdog.timer >/dev/null
+systemctl start screenable-lte-watchdog.timer
 systemctl start avahi-daemon.service getty@tty1.service
 systemctl restart screenable-api.service
 # Läuft die Kiosk-Sitzung bereits, den Player sofort auf das neue Release umstellen.
