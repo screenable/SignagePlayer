@@ -18,7 +18,7 @@ Aufruf: sudo ./install.sh
    oder: curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo bash
 
 Download von GitHub (nur beim Aufruf per curl):
-  SCREENABLE_VERSION=v0.3.0                     bestimmtes Release statt des neuesten
+  SCREENABLE_VERSION=v0.4.0                     bestimmtes Release statt des neuesten
   SCREENABLE_GITHUB_TOKEN=…                     Lese-Token, solange das Repository privat ist
 
 Optionen als Umgebungsvariablen (werden in /etc/screenable-player/install.env gespeichert;

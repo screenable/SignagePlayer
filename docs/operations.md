@@ -59,7 +59,7 @@ sudo SCREENABLE_ADMIN_PASSWORD='…' SCREENABLE_HOTSPOT_PSK='…' SCREENABLE_SIM
 # neuestes Release
 curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo bash
 # bestimmte Version, zusätzliche Optionen
-curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo SCREENABLE_VERSION=v0.3.0 SCREENABLE_REBOOT_TIME=05:30 bash
+curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo SCREENABLE_VERSION=v0.4.0 SCREENABLE_REBOOT_TIME=05:30 bash
 ```
 
 Auf einem minimalen Debian ohne `curl` vorher `sudo apt install -y curl` ausführen. Die Prüfsumme schützt vor beschädigten oder abgebrochenen Downloads; die Echtheit hängt am Zugang zum GitHub-Repository.
