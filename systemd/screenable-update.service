@@ -3,6 +3,8 @@ Description=Screenable over-the-air update
 Documentation=file:///opt/screenable-player/current/docs/operations.md
 After=network-online.target
 # Kein [Install]-Abschnitt: Gestartet nur über screenable-update.path.
+# Nach einem Rollback auf ein Release ohne Update-Dienst still überspringen.
+ConditionPathExists=/opt/screenable-player/current/dist/updater.js
 
 [Service]
 # Läuft als root, weil install.sh Releases und Systemdateien installiert. Die

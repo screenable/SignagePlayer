@@ -1,0 +1,11 @@
+[Unit]
+Description=Screenable LTE watchdog (reconnect a stalled mobile data connection)
+Documentation=file:///opt/screenable-player/current/docs/operations.md
+After=NetworkManager.service ModemManager.service
+# Nach einem Rollback auf ein Release ohne Watchdog still überspringen.
+ConditionPathExists=/opt/screenable-player/current/scripts/lte-watchdog.sh
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/screenable-player/current/scripts/lte-watchdog.sh

@@ -222,7 +222,7 @@ step 'Systempakete'
 apt-get update -q
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q \
   xorg xinit openbox chromium nodejs avahi-daemon x11-xserver-utils xdotool feh dbus-user-session openssl \
-  nftables network-manager modemmanager \
+  nftables network-manager modemmanager iputils-ping \
   pipewire pipewire-pulse pipewire-alsa wireplumber pulseaudio-utils alsa-utils
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends unclutter-xfixes \
   || note 'unclutter-xfixes nicht verfügbar; Mauszeiger bleibt sichtbar.'
@@ -267,7 +267,7 @@ ok 'screenable-api (Dashboard), screenable (Kiosk)'
 step 'Release vorbereiten'
 # install.sh gehört zum Release, damit der Update-Dienst damit neue Releases laden kann.
 payload=(install.sh package.json README.md docs dist web/dist openbox systemd system avahi chromium xorg splash)
-scripts=(xsession activate-release.sh rollback.sh renew-tls.sh)
+scripts=(xsession activate-release.sh rollback.sh renew-tls.sh lte-watchdog.sh)
 checksum=$(cd "${project_dir}" && { find "${payload[@]}" -type f ! -path 'dist/tests/*' -print0; printf 'scripts/%s\0' "${scripts[@]}" diagnostic-server.mjs; } \
   | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)
 previous=$(readlink -e "${base}/current" 2>/dev/null || true)
@@ -356,7 +356,9 @@ fi
 if [ "${lte}" = 0 ]; then
   note 'Übersprungen (SCREENABLE_LTE=0).'
 elif [ -n "${existing_lte}" ]; then
-  ok "Profil '${existing_lte}' vorhanden, unverändert"
+  # Nur Wiederverbindung nachrüsten; APN, PIN und DNS bleiben unverändert.
+  nmcli connection modify "${existing_lte}" connection.autoconnect yes connection.autoconnect-retries 0
+  ok "Profil '${existing_lte}' vorhanden, verbindet automatisch neu"
 else
   # Das Profil wird auch ohne erkanntes Modem angelegt: NetworkManager verbindet,
   # sobald das Modem erscheint. Ohne Modem bleibt es wirkungslos.
@@ -373,6 +375,8 @@ id=${lte_connection}
 uuid=$(new_uuid)
 type=gsm
 autoconnect=true
+# Nach Netzverlust unbegrenzt neu verbinden (Standard: 4 Versuche).
+autoconnect-retries=0
 
 [gsm]
 apn=${lte_apn}
