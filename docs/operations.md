@@ -111,6 +111,9 @@ Wird das Installationsskript per SSH über eine andere Schnittstelle ausgeführt
 
 ### Mobilfunk prüfen
 
+Das LTE-Profil verbindet beim Booten und nach Netzverlust automatisch und unbegrenzt oft neu. Zusätzlich prüft `screenable-lte-watchdog.timer` alle zwei Minuten per Ping (1.1.1.1, 8.8.8.8, Cloudflare-IPv6), ob über LTE wirklich Daten fließen. Manche Modems melden nach dem Booten eine aktive Verbindung, übertragen aber nichts (`tx: 0 bytes, rx: 0 bytes` im ModemManager-Journal). Nach drei Fehlschlägen in Folge baut der Watchdog die Verbindung neu auf. Protokoll: `journalctl -u screenable-lte-watchdog`.
+
+
 Der Installer legt das LTE-Profil immer an, wartet bei der Ersteinrichtung bis zu 60 s auf das Modem, prüft danach die LTE-Verbindung und gibt bei einem Fehler den Modemzustand aus. Am Gerät:
 
 ```sh
