@@ -11,6 +11,13 @@
     "mode": { "const": "single" },
     "outputId": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9_.-]{1,64}$" },
     "contentUrl": { "type": ["string", "null"], "maxLength": 2048, "format": "uri" },
+    "orientations": {
+      "description": "Ausrichtung je HDMI-Ausgang (xrandr --rotate); fehlende Ausgänge laufen im Querformat.",
+      "type": "object",
+      "maxProperties": 16,
+      "propertyNames": { "pattern": "^[A-Za-z0-9_.-]{1,64}$" },
+      "additionalProperties": { "enum": ["normal", "inverted", "left", "right"] }
+    },
     "recovery": {
       "type": "object",
       "additionalProperties": false,

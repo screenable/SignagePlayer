@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -139,4 +140,114 @@ test('Statische Dateien, Sicherheitsheader und Pfadschutz', async () => {
       assert.equal((await fetch(`${api.origin}${path}`)).status, 404, path);
     }
   } finally { await api.stop(); }
+});
+
+test('Ausrichtungen werden über die Konfiguration gespeichert', async () => {
+  const api = await startApi();
+  try {
+    const login = await api.login();
+    const { csrf } = await login.json() as { csrf: string };
+    const headers = { cookie: login.headers.get('set-cookie')!.split(';')[0], 'content-type': 'application/json', 'x-csrf-token': csrf };
+    const put = (revision: number, body: unknown) => fetch(`${api.base}/config`, { method: 'PUT', headers: { ...headers, 'if-match': String(revision) }, body: JSON.stringify(body) });
+    assert.equal((await put(0, { contentUrl: null, outputId: null, orientations: { 'HDMI-1': 'sideways' } })).status, 400);
+    const saved = await (await put(0, { contentUrl: null, outputId: 'HDMI-1', orientations: { 'HDMI-1': 'right' } })).json() as { orientations: unknown };
+    assert.deepEqual(saved.orientations, { 'HDMI-1': 'right' });
+    // Ältere Dashboards ohne das Feld behalten die gespeicherten Ausrichtungen.
+    const kept = await (await put(1, { contentUrl: null, outputId: null })).json() as { orientations: unknown };
+    assert.deepEqual(kept.orientations, { 'HDMI-1': 'right' });
+    const status = await (await fetch(`${api.base}/status`, { headers })).json() as { lte: { present: boolean; bars: number } };
+    assert.equal(status.lte.present, false);
+    assert.equal(status.lte.bars, 0);
+  } finally { await api.stop(); }
+});
+
+async function runUpdater(runtime: string, github: string, installer: string, tokenFile: string) {
+  const child = spawn(process.execPath, ['dist/updater.js'], {
+    cwd: process.cwd(), stdio: 'ignore',
+    env: { ...process.env, SCREENABLE_RUN_DIR: runtime, SCREENABLE_GITHUB_API: github, SCREENABLE_INSTALLER: installer, SCREENABLE_GITHUB_TOKEN_FILE: tokenFile },
+  });
+  const [code] = await once(child, 'exit');
+  return code as number | null;
+}
+
+test('Over-the-Air-Update: suchen, installieren, Fehler melden', { timeout: 30_000 }, async () => {
+  const api = await startApi();
+  const releases: { tag: string; auth: string | undefined }[] = [];
+  let tag = 'v99.0.0';
+  const github = createHttpServer((req, res) => {
+    releases.push({ tag, auth: req.headers.authorization });
+    if (req.url !== '/repos/screenable/SignagePlayer/releases/latest') { res.writeHead(404).end(); return; }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ tag_name: tag, name: `Screenable Player ${tag}`, published_at: '2026-10-01T10:00:00Z', body: 'Neue Funktionen', html_url: 'https://github.com/x' }));
+  });
+  github.listen(0, '127.0.0.1');
+  await once(github, 'listening');
+  const address = github.address();
+  const githubUrl = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
+  try {
+    const installer = join(api.dir, 'install.sh');
+    writeFileSync(installer, `#!/bin/bash\nprintf '%s %s %s\\n' "$1" "$SCREENABLE_VERSION" "$SCREENABLE_GITHUB_TOKEN" > "${api.dir}/installer-call"\necho 'Lade Screenable Player'\necho 'Fertig.'\nexit "\${FAKE_EXIT:-0}"\n`);
+    chmodSync(installer, 0o755);
+    const tokenFile = join(api.dir, 'github-token');
+    writeFileSync(tokenFile, 'geheim\n');
+    const login = await api.login();
+    const { csrf } = await login.json() as { csrf: string };
+    const headers = { cookie: login.headers.get('set-cookie')!.split(';')[0], 'x-csrf-token': csrf };
+    const get = async () => (await fetch(`${api.base}/update`, { headers })).json() as Promise<{ state: string; busy: boolean; latest: { version: string } | null; log: string[]; error: string | null }>;
+    const post = (action: string) => fetch(`${api.base}/update/${action}`, { method: 'POST', headers });
+
+    assert.equal((await get()).state, 'idle');
+    assert.equal((await fetch(`${api.base}/update/check`, { method: 'POST', headers: { cookie: headers.cookie } })).status, 403);
+    assert.equal((await post('install')).status, 409, 'Installieren erst nach einer Prüfung');
+    assert.equal((await post('check')).status, 202);
+    assert.deepEqual(await get().then(u => [u.state, u.busy]), ['checking', true]);
+    assert.equal((await post('check')).status, 409, 'Keine zweite Anforderung, solange eine wartet');
+
+    assert.equal(await runUpdater(api.runtime, githubUrl, installer, tokenFile), 0);
+    let update = await get();
+    assert.equal(update.state, 'available');
+    assert.equal(update.latest?.version, 'v99.0.0');
+    assert.equal(releases.at(-1)?.auth, 'Bearer geheim');
+    // Erneuter Lauf ohne neue Anforderung tut nichts.
+    const calls = releases.length;
+    assert.equal(await runUpdater(api.runtime, githubUrl, installer, tokenFile), 0);
+    assert.equal(releases.length, calls);
+
+    assert.equal((await post('install')).status, 202);
+    assert.equal((await get()).state, 'installing');
+    assert.equal(await runUpdater(api.runtime, githubUrl, installer, tokenFile), 0);
+    update = await get();
+    assert.equal(update.state, 'installed', update.error || '');
+    assert.deepEqual(update.log, ['Lade Screenable Player', 'Fertig.']);
+    assert.equal(readFileSync(join(api.dir, 'installer-call'), 'utf8').trim(), '--download v99.0.0 geheim');
+
+    // Ein Release, das nicht neuer ist, wird nicht installiert.
+    tag = 'v0.0.1';
+    assert.equal((await post('check')).status, 202);
+    assert.equal(await runUpdater(api.runtime, githubUrl, installer, tokenFile), 0);
+    assert.equal((await get()).state, 'up_to_date');
+    assert.equal((await post('install')).status, 409);
+
+    // Fehlgeschlagene Installation wird gemeldet.
+    tag = 'v99.0.1';
+    assert.equal((await post('check')).status, 202);
+    assert.equal(await runUpdater(api.runtime, githubUrl, installer, tokenFile), 0);
+    assert.equal((await post('install')).status, 202);
+    process.env.FAKE_EXIT = '3';
+    try { assert.equal(await runUpdater(api.runtime, githubUrl, installer, tokenFile), 0); }
+    finally { delete process.env.FAKE_EXIT; }
+    update = await get();
+    assert.equal(update.state, 'failed');
+    assert.match(update.error!, /Code 3/);
+
+    // Ohne erreichbaren Update-Server.
+    assert.equal((await post('check')).status, 202);
+    assert.equal(await runUpdater(api.runtime, 'http://127.0.0.1:1', installer, tokenFile), 0);
+    update = await get();
+    assert.equal(update.state, 'failed');
+    assert.match(update.error!, /nicht erreichbar/);
+  } finally {
+    github.close();
+    await api.stop();
+  }
 });

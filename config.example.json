@@ -4,6 +4,7 @@
   "mode": "single",
   "outputId": null,
   "contentUrl": "https://example.screenable.invalid/game",
+  "orientations": { "HDMI-2": "left" },
   "recovery": {
     "browserRestartDelaySeconds": 5,
     "maxRapidRestarts": 5

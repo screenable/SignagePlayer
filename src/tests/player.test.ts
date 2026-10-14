@@ -116,7 +116,22 @@ test('Hotplug: abgeschalteter Ausgang wird nach Entprellung neu gesetzt', { time
     assert.notEqual(second, first);
     const calls = readFileSync(join(player.dir, 'xrandr.log'), 'utf8').trim().split('\n');
     assert.equal(calls.length, 2);
-    assert.match(calls[1], /--output HDMI-1 --primary --auto --pos 0x0/);
+    assert.match(calls[1], /--output HDMI-1 --primary --auto --rotate normal --pos 0x0/);
     assert.equal(player.status().lastError, null);
+  } finally { await player.stop(); }
+});
+
+test('Ausrichtung je Ausgang wird per xrandr gesetzt und nach Änderung neu angewendet', { timeout: 30_000 }, async () => {
+  const player = startPlayer(dir => {
+    atomicWrite(join(dir, 'config.json'), JSON.stringify({ ...defaultConfig, contentUrl: 'https://example.com/', orientations: { 'HDMI-1': 'left', 'HDMI-2': 'right' }, recovery: { browserRestartDelaySeconds: 1, maxRapidRestarts: 5 } }));
+  });
+  try {
+    const first = await player.running();
+    assert.match(readFileSync(join(player.dir, 'xrandr.log'), 'utf8'), /--output HDMI-1 --primary --auto --rotate left --pos 0x0/);
+    assert.equal((player.status() as Status & { orientation: string }).orientation, 'left');
+    atomicWrite(join(player.dir, 'config.json'), JSON.stringify({ ...defaultConfig, revision: 1, contentUrl: 'https://example.com/', orientations: { 'HDMI-1': 'inverted' }, recovery: { browserRestartDelaySeconds: 1, maxRapidRestarts: 5 } }));
+    await player.running(first);
+    const calls = readFileSync(join(player.dir, 'xrandr.log'), 'utf8').trim().split('\n');
+    assert.match(calls.at(-1)!, /--rotate inverted/);
   } finally { await player.stop(); }
 });

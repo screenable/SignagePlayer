@@ -5,7 +5,7 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { routeHdmiAudio } from './audio.js';
-import { atomicWrite, readConfig, type Config } from './config.js';
+import { atomicWrite, orientationFor, readConfig, type Config, type Orientation } from './config.js';
 import { errorText, log, version } from './log.js';
 import { commandPath, configPath, runDir, stateDir, statusPath } from './paths.js';
 
@@ -25,7 +25,7 @@ const MAX_BACKOFF_SECONDS = 60;
 const RAPID_RESTART_WINDOW_MS = 60_000;
 const COMMAND_MAX_AGE_MS = 60_000;
 
-type Display = { id: string; primary: boolean; geometry: string | null };
+type Display = { id: string; primary: boolean; geometry: string | null; rotation: Orientation };
 type State = 'waiting_for_url' | 'waiting_for_display' | 'running' | 'restarting' | 'error';
 let config: Config | null = null;
 let browser: ChildProcess | null = null;
@@ -78,7 +78,7 @@ function report(): void {
   try {
     atomicWrite(statusPath, JSON.stringify({
       version, state, browserPid: browser?.pid || null, browserStartedAt, contentUrl: config?.contentUrl || null,
-      outputId: selectedOutput, displays, network, audioOutput, rapidRestarts, lastError,
+      outputId: selectedOutput, orientation: selectedOutput && config ? orientationFor(config, selectedOutput) : null, displays, network, audioOutput, rapidRestarts, lastError,
       updatedAt: new Date().toISOString(),
     }) + '\n');
     problem('status_write_failed', null);
@@ -90,8 +90,9 @@ async function detectDisplays(probe: boolean): Promise<Display[]> {
   // für die regelmäßige Hotplug-Prüfung genügt der vom X-Server gemeldete Stand.
   const { stdout } = await exec('xrandr', [probe ? '--query' : '--current'], { timeout: 5000 });
   return stdout.split('\n').flatMap(line => {
-    const match = line.match(/^(\S+) connected( primary)?(?: (\d+x\d+\+\d+\+\d+))?/);
-    return match ? [{ id: match[1], primary: !!match[2], geometry: match[3] || null }] : [];
+    // xrandr nennt die Drehung nur, wenn sie von normal abweicht: `1080x1920+0+0 left (normal …`.
+    const match = line.match(/^(\S+) connected( primary)?(?: (\d+x\d+\+\d+\+\d+))?(?: (left|right|inverted))?/);
+    return match ? [{ id: match[1], primary: !!match[2], geometry: match[3] || null, rotation: (match[4] || 'normal') as Orientation }] : [];
   });
 }
 
@@ -100,15 +101,17 @@ function chooseOutput(next: Config, connected: Display[]): string | null {
   return connected.find(d => d.primary)?.id || connected[0]?.id || null;
 }
 
+// Die Drehung gehört zum Layout: Querformat und um 180° gedreht haben dieselbe Geometrie.
 function layoutKey(output: string, connected: Display[]): string {
-  return `${output}@${connected.find(d => d.id === output)?.geometry || 'off'}`;
+  const display = connected.find(d => d.id === output);
+  return `${output}@${display?.geometry || 'off'}/${display?.geometry ? display.rotation : 'normal'}`;
 }
 
-async function setDisplayLayout(target: string, connected: Display[]): Promise<void> {
+async function setDisplayLayout(target: string, rotation: Orientation, connected: Display[]): Promise<void> {
   const args: string[] = [];
   for (const display of connected) {
     args.push('--output', display.id);
-    if (display.id === target) args.push('--primary', '--auto', '--pos', '0x0');
+    if (display.id === target) args.push('--primary', '--auto', '--rotate', rotation, '--pos', '0x0');
     else args.push('--off');
   }
   await exec('xrandr', args, { timeout: 8000 });
@@ -220,10 +223,11 @@ async function launchBrowser(next: Config): Promise<void> {
   }
   problem('display_unavailable', null);
   selectedOutput = output;
-  await setDisplayLayout(output, displays);
+  const rotation = orientationFor(next, output);
+  await setDisplayLayout(output, rotation, displays);
   displays = await detectDisplays(false);
   activeLayout = layoutKey(output, displays);
-  if (activeLayout.endsWith('@off')) log('warn', 'display_mode_missing', { outputId: output });
+  if (activeLayout.includes('@off/')) log('warn', 'display_mode_missing', { outputId: output });
   pendingLayout = null;
   displayLost = false;
   nextDisplayCheck = Date.now() + DISPLAY_CHECK_MS;
@@ -259,7 +263,7 @@ async function launchBrowser(next: Config): Promise<void> {
     log(crashLoop ? 'error' : 'warn', 'browser_exit', { code, signal, delay, rapidRestarts });
     report();
   });
-  log('info', 'browser_started', { pid: child.pid, outputId: output, layout: activeLayout });
+  log('info', 'browser_started', { pid: child.pid, outputId: output, rotation, layout: activeLayout });
   report();
   runAudioCheck();
   void focusBrowser(child);
@@ -352,7 +356,7 @@ async function tick(): Promise<void> {
     pendingLayout = null;
     state = next.contentUrl ? 'restarting' : 'waiting_for_url';
     lastError = null;
-    log('info', 'config_applied', { revision: next.revision, outputId: next.outputId, hasContentUrl: !!next.contentUrl });
+    log('info', 'config_applied', { revision: next.revision, outputId: next.outputId, orientations: next.orientations, hasContentUrl: !!next.contentUrl });
   }
   await handleCommand();
   if (reloadRequested) {

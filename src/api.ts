@@ -8,7 +8,9 @@ import { fileURLToPath } from 'node:url';
 import { readSecrets, verifyPassword, type Secrets } from './auth.js';
 import { atomicWrite, ConflictError, readConfig, saveConfig, ValidationError } from './config.js';
 import { errorText, log, version } from './log.js';
-import { commandPath, configPath, secretPath, statusPath } from './paths.js';
+import { lteStatus } from './modem.js';
+import { commandPath, configPath, secretPath, statusPath, updateRequestPath, updateStatusPath } from './paths.js';
+import { isNewer, readJson, readUpdateRequest, REQUEST_MAX_AGE_MS, type UpdateStatus } from './update.js';
 
 const SESSION_COOKIE = 'screenable_session';
 const SESSION_TTL_MS = 8 * 3600_000;
@@ -20,6 +22,10 @@ const MAX_CONCURRENT_VERIFICATIONS = 2;
 const MAX_BODY_BYTES = 16_384;
 const STATUS_STALE_MS = 10_000;
 const CERT_WARNING_DAYS = 30;
+// So lange darf der Update-Dienst brauchen, um eine Anforderung anzunehmen.
+const UPDATE_PICKUP_MS = 30_000;
+// Länger als TimeoutStartSec von screenable-update.service.
+const UPDATE_STALE_MS = 50 * 60_000;
 
 class TooLargeError extends ValidationError {}
 
@@ -133,6 +139,30 @@ function playerStatus(): Record<string, unknown> {
     return status;
   }
   catch { return { state: 'unknown', lastError: 'Player-Status nicht verfügbar.' }; }
+}
+
+// Stand des Update-Dienstes. Eine Anforderung, die er nicht abholt, wird nach
+// kurzer Zeit als Fehler gemeldet, statt das Dashboard endlos warten zu lassen.
+function updateStatus(): UpdateStatus & { busy: boolean } {
+  const stored = readJson<UpdateStatus>(updateStatusPath);
+  const current: UpdateStatus = {
+    state: 'idle', latest: null, checkedAt: null, startedAt: null, finishedAt: null, error: null, log: [], requestId: null,
+    updatedAt: new Date().toISOString(), ...stored, currentVersion: version,
+  };
+  // Nach einem erfolgreichen Update läuft hier bereits die neue Version.
+  if (current.state === 'available' && current.latest && !isNewer(current.latest.version, version)) current.state = 'up_to_date';
+  const request = readUpdateRequest(updateRequestPath);
+  const waiting = !!request && request.id !== current.requestId && Date.now() - request.createdAt < REQUEST_MAX_AGE_MS;
+  if (waiting && Date.now() - request.createdAt > UPDATE_PICKUP_MS) {
+    return { ...current, state: 'failed', error: 'Der Update-Dienst reagiert nicht (screenable-update.path aktiv?).', busy: false };
+  }
+  if (waiting) return { ...current, state: request.action === 'check' ? 'checking' : 'installing', error: null, busy: true };
+  const running = current.state === 'checking' || current.state === 'installing';
+  // Ein über das Zeitlimit des Dienstes hinaus hängender Lauf blockiert nicht für immer.
+  if (running && Date.now() - Date.parse(current.updatedAt) > UPDATE_STALE_MS) {
+    return { ...current, state: 'failed', error: 'Der Update-Vorgang wurde abgebrochen. Protokoll: journalctl -u screenable-update', busy: false };
+  }
+  return { ...current, busy: running };
 }
 
 function tlsOptions() {
@@ -252,12 +282,25 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       if (!match || !/^"?[0-9]+"?$/.test(match.toString())) { json(res, 428, { error: 'If-Match mit Revision erforderlich.' }); return; }
       const current = readConfig(configPath);
       const data = await body(req);
-      const updated = saveConfig(configPath, { ...current, outputId: data.outputId, contentUrl: data.contentUrl }, Number(match.toString().replaceAll('"', '')));
-      log('info', 'config_updated', { ip: clientIp(req), revision: updated.revision, outputId: updated.outputId, hasContentUrl: !!updated.contentUrl });
+      const next = { ...current, outputId: data.outputId, contentUrl: data.contentUrl, orientations: data.orientations ?? current.orientations };
+      const updated = saveConfig(configPath, next, Number(match.toString().replaceAll('"', '')));
+      log('info', 'config_updated', { ip: clientIp(req), revision: updated.revision, outputId: updated.outputId, orientations: updated.orientations, hasContentUrl: !!updated.contentUrl });
       json(res, 200, updated); return;
     }
     if (pathname === '/api/v1/status' && req.method === 'GET') {
-      json(res, 200, { version, apiUptimeSeconds: Math.floor((Date.now() - startedAt) / 1000), tls: tlsStatus(), player: playerStatus() }); return;
+      json(res, 200, { version, apiUptimeSeconds: Math.floor((Date.now() - startedAt) / 1000), tls: tlsStatus(), player: playerStatus(), lte: await lteStatus() }); return;
+    }
+    if (pathname === '/api/v1/update' && req.method === 'GET') { json(res, 200, updateStatus()); return; }
+    if ((pathname === '/api/v1/update/check' || pathname === '/api/v1/update/install') && req.method === 'POST') {
+      const action = pathname.endsWith('/check') ? 'check' : 'install';
+      const current = updateStatus();
+      if (current.busy) { json(res, 409, { error: 'Es läuft bereits eine Update-Aktion.' }); return; }
+      if (action === 'install' && !(current.latest && isNewer(current.latest.version, version))) {
+        json(res, 409, { error: 'Kein neueres Release bekannt. Zuerst nach Updates suchen.' }); return;
+      }
+      atomicWrite(updateRequestPath, JSON.stringify({ id: randomUUID(), action, createdAt: Date.now() }) + '\n', 0o640);
+      log('info', 'update_requested', { ip: clientIp(req), action, latest: current.latest?.version });
+      json(res, 202, updateStatus()); return;
     }
     if (pathname === '/api/v1/displays' && req.method === 'GET') {
       json(res, 200, { displays: playerStatus().displays || [] }); return;

@@ -16,10 +16,14 @@ usage() {
   cat <<'EOF'
 Aufruf: sudo ./install.sh
    oder: curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo bash
+   oder: sudo ./install.sh --download   Release von GitHub laden statt dieses Verzeichnis zu installieren
+                                        (so spielt das Dashboard Over-the-Air-Updates ein)
 
-Download von GitHub (nur beim Aufruf per curl):
-  SCREENABLE_VERSION=v0.4.0                     bestimmtes Release statt des neuesten
-  SCREENABLE_GITHUB_TOKEN=…                     Lese-Token, solange das Repository privat ist
+Download von GitHub (beim Aufruf per curl oder mit --download):
+  SCREENABLE_VERSION=v0.5.0                     bestimmtes Release statt des neuesten
+  SCREENABLE_GITHUB_TOKEN=…                     Lese-Token, solange das Repository privat ist; wird für
+                                                Updates aus dem Dashboard in /etc/screenable-player/github-token
+                                                gespeichert (nur für root lesbar)
 
 Optionen als Umgebungsvariablen (werden in /etc/screenable-player/install.env gespeichert;
 beim Aufruf gesetzte Werte haben Vorrang):
@@ -261,7 +265,8 @@ ok 'screenable-api (Dashboard), screenable (Kiosk)'
 
 # ---------------------------------------------------------------------------
 step 'Release vorbereiten'
-payload=(package.json README.md docs dist web/dist openbox systemd system avahi chromium xorg)
+# install.sh gehört zum Release, damit der Update-Dienst damit neue Releases laden kann.
+payload=(install.sh package.json README.md docs dist web/dist openbox systemd system avahi chromium xorg)
 scripts=(xsession activate-release.sh rollback.sh renew-tls.sh)
 checksum=$(cd "${project_dir}" && { find "${payload[@]}" -type f ! -path 'dist/tests/*' -print0; printf 'scripts/%s\0' "${scripts[@]}" diagnostic-server.mjs; } \
   | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)
@@ -293,6 +298,13 @@ else
   chmod -R go-w "${release}"
   app="${release}"
   ok "Neues Release ${name} (wird in Schritt ${total} aktiviert)"
+fi
+
+# Lese-Token für Over-the-Air-Updates aus dem Dashboard (privates Repository).
+if [ -n "${SCREENABLE_GITHUB_TOKEN:-}" ]; then
+  (umask 077; printf '%s\n' "${SCREENABLE_GITHUB_TOKEN}" > "${etc}/github-token.new")
+  mv "${etc}/github-token.new" "${etc}/github-token"
+  note "GitHub-Token für Updates aus dem Dashboard gespeichert (${etc}/github-token)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -563,5 +575,7 @@ fi
 if [ "${1:-}" = '--help' ] || [ "${1:-}" = '-h' ]; then usage; exit 0; fi
 script_dir=''
 if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); fi
-if [ -n "${script_dir}" ] && [ -f "${script_dir}/package.json" ]; then main "$@"; else bootstrap "$@"; fi
+if [ "${1:-}" = '--download' ]; then bootstrap
+elif [ -n "${script_dir}" ] && [ -f "${script_dir}/package.json" ]; then main "$@"
+else bootstrap "$@"; fi
 exit
