@@ -41,7 +41,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get install -y --no-install-recommends libxml2-utils shellcheck nftables
+      # Der Paketindex des Runner-Images veraltet; ohne update schlagen Downloads mit 404 fehl.
+      - run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends libxml2-utils shellcheck nftables
       - run: shellcheck install.sh scripts/*.sh scripts/xsession
       - run: xmllint --noout openbox/rc.xml avahi/screenable-player.service
       - run: for f in chromium/*.json config.example.json config.schema.json; do jq empty "$f"; done

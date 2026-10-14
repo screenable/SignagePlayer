@@ -32,7 +32,7 @@ Optionen werden als Umgebungsvariablen übergeben und in `/etc/screenable-player
 | `SCREENABLE_HOTSPOT_ADDRESS` | `10.42.0.1` | Feste Adresse des Geräts im Hotspot |
 | `SCREENABLE_ADMIN_INTERFACES` | WLAN-Gerät des Hotspots | Schnittstellen mit Verwaltungszugang, durch Leerzeichen getrennt |
 | `SCREENABLE_FIREWALL` | `1` | Eingehende Verbindungen nur über die Verwaltungsschnittstellen |
-| `SCREENABLE_LTE` | `auto` | LTE-Profil anlegen: `auto` nur mit erkanntem Modem, `1` immer, `0` nie |
+| `SCREENABLE_LTE` | `auto` | LTE-Profil anlegen: `auto`/`1` immer (verbindet, sobald ein Modem erscheint), `0` nie |
 | `SCREENABLE_LTE_CONNECTION` | `Telekom-LTE` | NetworkManager-Profil für LTE |
 | `SCREENABLE_LTE_APN` | `internet.telekom` | APN, nur beim Anlegen des Profils |
 | `SCREENABLE_LTE_DNS` | `1.1.1.1 8.8.8.8` | IPv4-DNS-Server, nur beim Anlegen des Profils |
@@ -108,6 +108,37 @@ Im Hotspot ist das Dashboard erreichbar unter:
 Die Firewall nutzt eine eigene nftables-Tabelle (`inet screenable`) und ersetzt keine Regeln von NetworkManager (Hotspot-NAT, DHCP, DNS) oder Docker; `nftables.service` bleibt deaktiviert. Hotspot-Clients kommen weiterhin über LTE ins Internet. Änderungen an einem bestehenden Hotspot-Profil wirken ab der nächsten Aktivierung des Hotspots, spätestens nach einem Neustart; ein laufender Hotspot wird während der Installation nicht unterbrochen.
 
 Wird das Installationsskript per SSH über eine andere Schnittstelle ausgeführt, bleibt diese Sitzung bestehen, neue Verbindungen dorthin sind danach gesperrt. Für Ethernet als zusätzlichen Verwaltungszugang `SCREENABLE_ADMIN_INTERFACES="wlp2s0 eno1"` setzen; zum Abschalten `SCREENABLE_FIREWALL=0`. Den Zustand prüfen mit `sudo nft list table inet screenable`.
+
+### Mobilfunk prüfen
+
+Der Installer legt das LTE-Profil immer an, wartet bei der Ersteinrichtung bis zu 60 s auf das Modem, prüft danach die LTE-Verbindung und gibt bei einem Fehler den Modemzustand aus. Am Gerät:
+
+```sh
+nmcli device status                      # gsm-Gerät: "verbunden"?
+nmcli radio wwan                         # muss "enabled" sein, sonst: sudo nmcli radio wwan on
+mmcli -L && mmcli -m any                 # State, Failed reason, SIM, Signal, Operator
+nmcli -g gsm.apn connection show Telekom-LTE
+journalctl -u ModemManager -u NetworkManager -b | grep -iE 'modem|gsm|bearer' | tail -n 40
+```
+
+| Befund in `mmcli -m any` | Ursache und Abhilfe |
+|---|---|
+| keine Modemliste | Modul nicht erkannt: BIOS (WWAN aktiviert?), `rfkill list`, `lsusb` |
+| `state: locked`, `lock: sim-pin` | PIN fehlt oder falsch, Profil neu anlegen (siehe unten) |
+| `failed reason: sim-missing` | SIM nicht gesteckt oder falsch eingelegt |
+| `power state: low`, `state: disabled` und `FCC lock` im Journal | FCC-Sperre des Moduls: `sudo ln -s /usr/share/ModemManager/fcc-unlock.available.d/<vid:pid> /etc/ModemManager/fcc-unlock.d/` |
+| `registered`, `attached`, aber `nmcli device status` zeigt `gsm … nicht verbunden --` | kein LTE-Profil vorhanden (ältere Installer übersprangen es, wenn das Modem noch nicht erkannt war): Installer erneut ausführen |
+| `registered`, aber kein Bearer/IP | falscher APN: die Vorgabe `internet.telekom` passt nur für Telekom-SIMs |
+| `signal quality` sehr niedrig, `searching` | Antennen prüfen |
+
+Ein vorhandenes LTE-Profil ändert der Installer nicht. Für andere PIN oder APN das Profil löschen und neu anlegen lassen, z. B. für Vodafone:
+
+```sh
+sudo nmcli connection delete Telekom-LTE
+curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo SCREENABLE_LTE_APN=web.vodafone.de bash
+```
+
+Gängige APNs: Telekom `internet.telekom`, Vodafone `web.vodafone.de`, O2 `internet`, 1&1 `web.vodafone.de` oder `internet` (je nach Netz).
 
 ## Zugriff und TLS
 
@@ -187,6 +218,21 @@ printf '[Service]\nEnvironment=SCREENABLE_CHROMIUM_FLAGS=--enable-features=Vaapi
 ```
 
 Danach das Gerät neu starten. Nur `--`-Optionen sind erlaubt; `--no-sandbox`, `--disable-web-security` und `--ignore-certificate-errors` sind keine Betriebsoptionen.
+
+## Tonausgabe (HDMI)
+
+Die Kiosk-Sitzung nutzt PipeWire (`pipewire-pulse`, WirePlumber). Der Player prüft alle 10 s, welcher HDMI-Port ein audiofähiges Gerät meldet – nach dem `xrandr`-Layout ist das nur der gewählte Ausgang –, schaltet bei Bedarf das Kartenprofil um, setzt ihn als Standardgerät auf 100 % und hebt die Stummschaltung auf. Das Dashboard zeigt das Gerät unter „Tonausgabe“; ohne Gerät steht „Kein HDMI-Ton“ (Monitor ohne Lautsprecher, getrennt oder Ton am Monitor deaktiviert).
+
+Prüfen am Gerät:
+
+```sh
+sudo -u screenable XDG_RUNTIME_DIR=/run/user/$(id -u screenable) wpctl status
+sudo -u screenable XDG_RUNTIME_DIR=/run/user/$(id -u screenable) pactl list cards short
+journalctl _UID=$(id -u screenable) | grep audio_
+aplay -l   # erscheint keine Karte: firmware-sof-signed installieren und neu starten
+```
+
+Automatische Umschaltung abschalten (z. B. für Klinke): `systemctl --user -M screenable@ edit screenable-player` mit `Environment=SCREENABLE_AUDIO_ROUTING=0`.
 
 ## Diagnose
 
