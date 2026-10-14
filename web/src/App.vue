@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 
 type Config = { revision: number; mode: 'single'; outputId: string | null; contentUrl: string | null };
 type Display = { id: string; primary: boolean; geometry: string | null };
-type Player = { state: string; browserPid: number | null; outputId: string | null; displays?: Display[]; network?: string; lastError: string | null; updatedAt?: string };
+type Player = { state: string; browserPid: number | null; outputId: string | null; displays?: Display[]; network?: string; audioOutput?: string | null; lastError: string | null; updatedAt?: string };
 type Status = { version: string; tls: { validTo: string; daysLeft: number; expiresSoon: boolean } | null; player: Player };
 
 const stateLabels: Record<string, { label: string; tone: 'ok' | 'warn' | 'bad' }> = {
@@ -182,6 +182,7 @@ onUnmounted(() => {
             <div><dt>Browser PID</dt><dd>{{ status?.player.browserPid || '–' }}</dd></div>
             <div><dt>Aktiver Ausgang</dt><dd>{{ status?.player.outputId || '–' }}</dd></div>
             <div><dt>Inhalteserver</dt><dd>{{ networkLabels[status?.player.network || ''] || '–' }}</dd></div>
+            <div><dt>Tonausgabe</dt><dd>{{ status?.player.audioOutput || 'Kein HDMI-Ton' }}</dd></div>
             <div><dt>Aktualisiert</dt><dd>{{ status?.player.updatedAt ? new Date(status.player.updatedAt).toLocaleTimeString('de-DE') : '–' }}</dd></div>
           </dl>
           <p v-if="status?.player.lastError" class="notice error">{{ status.player.lastError }}</p>

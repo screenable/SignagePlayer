@@ -218,9 +218,13 @@ step 'Systempakete'
 apt-get update -q
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q \
   xorg xinit openbox chromium nodejs avahi-daemon x11-xserver-utils xdotool dbus-user-session openssl \
-  nftables network-manager modemmanager
+  nftables network-manager modemmanager \
+  pipewire pipewire-pulse pipewire-alsa wireplumber pulseaudio-utils alsa-utils
 DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends unclutter-xfixes \
   || note 'unclutter-xfixes nicht verfügbar; Mauszeiger bleibt sichtbar.'
+# Neuere Intel-Plattformen geben Ton (auch HDMI) nur mit Sound-Open-Firmware aus.
+DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends firmware-sof-signed \
+  || note 'firmware-sof-signed nicht verfügbar (Komponente non-free-firmware fehlt?); ggf. kein Ton.'
 node_major=$(node -p 'Number(process.versions.node.split(".")[0])')
 [ "${node_major}" -ge 20 ] || fail "Node.js 20 oder neuer benötigt, gefunden ${node_major}."
 systemctl enable --now NetworkManager.service ModemManager.service >/dev/null 2>&1 || true

@@ -48,6 +48,9 @@ ln -sfn "${release}" "${base}/current.new"
 mv -T "${base}/current.new" "${base}/current"
 
 systemctl daemon-reload
+# Tonserver der Kiosk-Sitzung. Ohne ihn öffnet Chromium ALSA direkt und spielt
+# auf dem Standardgerät der Karte, meist dem analogen Ausgang statt HDMI.
+systemctl --global enable pipewire.socket pipewire-pulse.socket wireplumber.service >/dev/null 2>&1 || true
 systemd-tmpfiles --create /etc/tmpfiles.d/screenable-player.conf
 systemctl restart systemd-journald.service
 systemctl enable avahi-daemon.service screenable-api.service getty@tty1.service >/dev/null
@@ -55,6 +58,7 @@ systemctl start avahi-daemon.service getty@tty1.service
 systemctl restart screenable-api.service
 # Läuft die Kiosk-Sitzung bereits, den Player sofort auf das neue Release umstellen.
 if systemctl --user -M screenable@ daemon-reload 2>/dev/null; then
+  systemctl --user -M screenable@ start pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
   systemctl --user -M screenable@ try-restart screenable-player.service 2>/dev/null || true
 fi
 

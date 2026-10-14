@@ -53,9 +53,10 @@ Auf `http://127.0.0.1:8080` ist das Dashboard lokal erreichbar. Das Image wird v
 - Status und Aktionen über `/api/v1`; lokale Hardware-Testseite unter `/diagnostic.html`.
 - API separat vom X11-Player, sodass das Dashboard bei einem Browserabsturz erreichbar bleibt; gehärteter systemd-Dienst.
 - Firewall: Dashboard, SSH und mDNS nur aus dem Hotspot erreichbar, nicht über LTE (IPv4/IPv6); feste Hotspot-Adresse und Gerätename auch für Android-Clients auflösbar.
+- Ton über HDMI: PipeWire als Tonserver; der Player legt die Ausgabe automatisch auf den HDMI-Port des aktiven Bildausgangs, hebt die Stummschaltung auf und zeigt das Gerät im Dashboard.
 - Versionierte Releases mit automatischem Rollback, Zertifikatserneuerung ohne Neustart, begrenzte persistente Logs.
 
-**Noch nicht umgesetzt:** Span/Independent, Audio-Sink-Auswahl, Debugging und sichere Offline-Inhaltsanzeige. Diese Bereiche sind für eine spätere Version geplant oder benötigen Messungen am Gerät.
+**Noch nicht umgesetzt:** Span/Independent, manuelle Audio-Ausgangswahl (z. B. Klinke), Debugging und sichere Offline-Inhaltsanzeige. Diese Bereiche sind für eine spätere Version geplant oder benötigen Messungen am Gerät.
 
 ## Prüfung und Betrieb
 

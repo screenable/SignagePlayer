@@ -4,6 +4,7 @@ import { connect } from 'node:net';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { routeHdmiAudio } from './audio.js';
 import { atomicWrite, readConfig, type Config } from './config.js';
 import { errorText, log, version } from './log.js';
 import { commandPath, configPath, runDir, stateDir, statusPath } from './paths.js';
@@ -16,6 +17,9 @@ const STATUS_MS = 2000;
 const DISPLAY_CHECK_MS = Number(process.env.SCREENABLE_DISPLAY_CHECK_MS) || 10_000;
 const NETWORK_CHECK_MS = Number(process.env.SCREENABLE_NETWORK_CHECK_MS) || 15_000;
 const NETWORK_TIMEOUT_MS = 5000;
+const AUDIO_CHECK_MS = Number(process.env.SCREENABLE_AUDIO_CHECK_MS) || 10_000;
+// SCREENABLE_AUDIO_ROUTING=0 überlässt die Wahl des Tonausgangs WirePlumber.
+const AUDIO_ROUTING = process.env.SCREENABLE_AUDIO_ROUTING !== '0';
 const WAIT_FOR_DISPLAY_MS = 5000;
 const MAX_BACKOFF_SECONDS = 60;
 const RAPID_RESTART_WINDOW_MS = 60_000;
@@ -41,6 +45,7 @@ let lastLaunch = 0;
 let nextDisplayCheck = 0;
 let network: 'unknown' | 'online' | 'offline' = 'unknown';
 let networkFailures = 0;
+let audioOutput: string | null = null;
 let reloadRequested = false;
 let shuttingDown = false;
 
@@ -73,7 +78,7 @@ function report(): void {
   try {
     atomicWrite(statusPath, JSON.stringify({
       version, state, browserPid: browser?.pid || null, browserStartedAt, contentUrl: config?.contentUrl || null,
-      outputId: selectedOutput, displays, network, rapidRestarts, lastError,
+      outputId: selectedOutput, displays, network, audioOutput, rapidRestarts, lastError,
       updatedAt: new Date().toISOString(),
     }) + '\n');
     problem('status_write_failed', null);
@@ -256,6 +261,7 @@ async function launchBrowser(next: Config): Promise<void> {
   });
   log('info', 'browser_started', { pid: child.pid, outputId: output, layout: activeLayout });
   report();
+  runAudioCheck();
   void focusBrowser(child);
 }
 
@@ -392,6 +398,21 @@ async function checkNetwork(): Promise<void> {
   }
 }
 
+// Ton auf den HDMI-Port des aktiven Ausgangs legen. Läuft regelmäßig, weil der
+// Monitor seine Audiofähigkeit (ELD) erst kurz nach dem Einschalten meldet.
+async function checkAudio(): Promise<void> {
+  try {
+    const result = await routeHdmiAudio();
+    audioOutput = result.sink ? result.description : null;
+    problem('audio_check_failed', null);
+    problem('audio_unavailable', result.error);
+    if (result.changed) log('info', 'audio_routed', { sink: result.sink, output: result.description });
+  } catch (error) {
+    audioOutput = null;
+    problem('audio_check_failed', errorText(error));
+  }
+}
+
 async function loop(): Promise<void> {
   while (!shuttingDown) {
     try { await tick(); problem('player_error', null); }
@@ -403,6 +424,13 @@ async function loop(): Promise<void> {
     report();
     await sleep(TICK_MS);
   }
+}
+
+let audioBusy = false;
+function runAudioCheck(): void {
+  if (!AUDIO_ROUTING || audioBusy || shuttingDown) return;
+  audioBusy = true;
+  checkAudio().catch(() => {}).finally(() => { audioBusy = false; });
 }
 
 let networkBusy = false;
@@ -427,4 +455,5 @@ log('info', 'player_starting', { version, display: process.env.DISPLAY, extraFla
 setInterval(report, STATUS_MS).unref();
 setInterval(runNetworkCheck, NETWORK_CHECK_MS).unref();
 setTimeout(runNetworkCheck, 3000).unref();
+setInterval(runAudioCheck, AUDIO_CHECK_MS).unref();
 void loop();
