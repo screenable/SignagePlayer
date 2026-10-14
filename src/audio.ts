@@ -10,7 +10,10 @@ export type Card = {
   profiles?: Record<string, { priority?: number; available?: boolean }>;
   ports?: Record<string, CardPort>;
 };
-export type Sink = { name: string; mute?: boolean; active_port?: string | null; properties?: Record<string, string>; ports?: { name: string }[] };
+export type Sink = {
+  name: string; mute?: boolean; active_port?: string | null; properties?: Record<string, string>; ports?: { name: string }[];
+  volume?: Record<string, { value_percent?: string }>;
+};
 export type HdmiPort = { card: Card; port: string; description: string };
 
 const HDMI = /hdmi|displayport/i;
@@ -52,9 +55,17 @@ async function pactl(...args: string[]): Promise<string> {
 
 export type AudioResult = { sink: string | null; description: string | null; error: string | null; changed: boolean };
 
+// Stimmen alle Kanäle schon mit der eingestellten Lautstärke überein?
+export function hasVolume(sink: Sink, percent: number): boolean {
+  const channels = Object.values(sink.volume || {});
+  return channels.length > 0 && channels.every(channel => channel.value_percent?.trim() === `${percent}%`);
+}
+
 // Leitet die Tonausgabe auf den HDMI-Port des aktiven Bildausgangs. Chromium spielt auf
 // das Standardgerät; WirePlumber verschiebt laufende Streams beim Wechsel automatisch.
-export async function routeHdmiAudio(): Promise<AudioResult> {
+// Die Lautstärke aus dem Dashboard wird bei jeder Prüfung wiederhergestellt, auch wenn
+// sie am Gerät (z. B. per Tastatur) verstellt wurde.
+export async function routeHdmiAudio(volume = 100): Promise<AudioResult> {
   const cards = JSON.parse(await pactl('--format=json', 'list', 'cards')) as Card[];
   const target = availableHdmiPorts(cards)[0];
   if (!target) return { sink: null, description: null, error: 'Kein HDMI-Audiogerät verfügbar (Monitor ohne Lautsprecher oder getrennt).', changed: false };
@@ -71,10 +82,9 @@ export async function routeHdmiAudio(): Promise<AudioResult> {
   const current = (await pactl('get-default-sink')).trim();
   if (current !== sink.name) {
     await pactl('set-default-sink', sink.name);
-    // Signage hat keine Lautstärkeregelung am Gerät: einmalig voll aufdrehen.
-    await pactl('set-sink-volume', sink.name, '100%');
     changed = true;
   }
+  if (!hasVolume(sink, volume)) { await pactl('set-sink-volume', sink.name, `${volume}%`); changed = true; }
   if (sink.mute) { await pactl('set-sink-mute', sink.name, '0'); changed = true; }
   return { sink: sink.name, description: target.description, error: null, changed };
 }

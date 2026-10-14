@@ -4,7 +4,7 @@ import { scryptSync } from 'node:crypto';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { atomicWrite, defaultConfig, readConfig, saveConfig, validateConfig, validateContentUrl } from '../config.js';
+import { atomicWrite, defaultConfig, orientationFor, readConfig, saveConfig, validateConfig, validateContentUrl } from '../config.js';
 import { createSecrets, readSecrets, saveSecrets, verifyPassword } from '../auth.js';
 
 test('URL-Policy und Single-Konfiguration', () => {
@@ -15,6 +15,29 @@ test('URL-Policy und Single-Konfiguration', () => {
   }
   assert.throws(() => validateConfig({ ...defaultConfig, mode: 'span' }));
   assert.throws(() => validateConfig({ ...defaultConfig, outputId: '; rm -rf /' }));
+});
+
+test('Ausrichtung je Ausgang', () => {
+  const config = validateConfig({ ...defaultConfig, orientations: { 'HDMI-1': 'left', 'HDMI-2': 'normal', 'DP-1': 'inverted' } });
+  // Querformat ist der Standard und wird nicht gespeichert.
+  assert.deepEqual(config.orientations, { 'HDMI-1': 'left', 'DP-1': 'inverted' });
+  assert.equal(orientationFor(config, 'HDMI-1'), 'left');
+  assert.equal(orientationFor(config, 'HDMI-2'), 'normal');
+  assert.equal(orientationFor(config, 'constructor'), 'normal');
+  // Konfigurationen älterer Versionen ohne das Feld bleiben gültig.
+  const { orientations: _, ...legacy } = defaultConfig;
+  assert.deepEqual(validateConfig(legacy).orientations, {});
+  for (const orientations of [{ 'HDMI-1': 'diagonal' }, { '; rm -rf /': 'left' }, ['left'], 'left', Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`HDMI-${i}`, 'left']))]) {
+    assert.throws(() => validateConfig({ ...defaultConfig, orientations }), JSON.stringify(orientations));
+  }
+});
+
+test('Lautstärke', () => {
+  assert.equal(validateConfig(defaultConfig).volume, 100);
+  const { volume: _, ...legacy } = defaultConfig;
+  assert.equal(validateConfig(legacy).volume, 100);
+  assert.equal(validateConfig({ ...defaultConfig, volume: 0 }).volume, 0);
+  for (const volume of [-1, 101, 50.5, '50', null]) assert.throws(() => validateConfig({ ...defaultConfig, volume }), String(volume));
 });
 
 test('atomare Konfiguration, Revision und Backup', () => {

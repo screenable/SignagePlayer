@@ -1,0 +1,19 @@
+[Unit]
+Description=Screenable over-the-air update
+Documentation=file:///opt/screenable-player/current/docs/operations.md
+After=network-online.target
+# Kein [Install]-Abschnitt: Gestartet nur über screenable-update.path.
+# Nach einem Rollback auf ein Release ohne Update-Dienst still überspringen.
+ConditionPathExists=/opt/screenable-player/current/dist/updater.js
+
+[Service]
+# Läuft als root, weil install.sh Releases und Systemdateien installiert. Die
+# Anforderung enthält nur die Aktion; geladen wird stets das neueste Release aus
+# dem fest eingestellten Repository, geprüft per SHA-256 wie bei der Installation.
+Type=oneshot
+Environment=NODE_ENV=production
+Environment=SCREENABLE_STATE_DIR=/var/lib/screenable-player
+Environment=SCREENABLE_RUN_DIR=/run/screenable-player
+ExecStart=/usr/bin/node /opt/screenable-player/current/dist/updater.js
+# apt-get und der Download über LTE können dauern.
+TimeoutStartSec=45min

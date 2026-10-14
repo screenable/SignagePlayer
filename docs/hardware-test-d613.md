@@ -42,6 +42,11 @@ Auf dem D613 `node /opt/screenable-player/current/scripts/diagnostic-server.mjs`
 | Kein Zugriff über LTE | Von außen (z. B. Handy im Mobilfunk) `https://[<IPv6 des Geräts>]:8443` und `ssh` auf die IPv6 versuchen; beides muss ins Leere laufen. IPv6-Adresse mit `ip -6 addr show dev wwp0s20f0u7i4` | Nicht getestet |
 | Internet trotz Firewall | Am Gerät `ping -c3 1.1.1.1` und `ping -6 -c3 2606:4700:4700::1111`; Hotspot-Client erreicht Internet, DHCP und DNS funktionieren | Nicht getestet |
 | Update/Rollback | Installer erneut ausführen, danach `rollback.sh`; Inhalt erscheint jeweils wieder | Nicht getestet |
+| Update aus dem Dashboard | Auf einem Gerät mit älterem Release „Nach Updates suchen“ und „Update installieren“; neue Version im Dashboard, Inhalt erscheint wieder. Mit abgezogener LTE-Antenne: verständliche Fehlermeldung, altes Release bleibt aktiv | Nicht getestet |
+| Bildausrichtung | Je HDMI-Ausgang alle vier Ausrichtungen wählen; Bild steht richtig, füllt den Bildschirm, nach Monitor-Hotplug bleibt die Drehung erhalten | Nicht getestet |
+| Startbildschirm | LTE-Antenne abziehen und neu starten: Logo erscheint, kein Chromium, Status „Wartet auf Internet“; Antenne anschließen: Inhalt erscheint ohne Bedienung. Im Hochformat steht das Logo aufrecht | Nicht getestet |
+| Lautstärke | Regler auf 30 % und 0 %: Ton wird leiser bzw. stumm, Browser läuft weiter (gleiche PID) | Nicht getestet |
+| LTE-Signal | Balken im Dashboard mit `mmcli -m any` (signal quality) vergleichen; Antenne abziehen: Balken sinken, ohne Netz null | Nicht getestet |
 
 ## Reproduzierbare offene Tickets
 

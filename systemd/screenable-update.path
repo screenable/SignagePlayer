@@ -1,0 +1,11 @@
+[Unit]
+Description=Screenable over-the-air update requests from the dashboard
+Documentation=file:///opt/screenable-player/current/docs/operations.md
+
+[Path]
+# Die API legt hier "nach Updates suchen" oder "installieren" ab.
+PathChanged=/run/screenable-player/update-request.json
+Unit=screenable-update.service
+
+[Install]
+WantedBy=multi-user.target

@@ -6,3 +6,7 @@ export const configPath = join(stateDir, 'config.json');
 export const secretPath = join(stateDir, 'secrets.json');
 export const statusPath = join(runDir, 'status.json');
 export const commandPath = join(runDir, 'command.json');
+// Over-the-Air-Update: Die API legt Anforderungen ab, screenable-update.service (root)
+// führt sie aus und schreibt seinen Fortschritt zurück.
+export const updateRequestPath = join(runDir, 'update-request.json');
+export const updateStatusPath = join(runDir, 'update.json');

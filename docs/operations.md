@@ -59,7 +59,7 @@ sudo SCREENABLE_ADMIN_PASSWORD='…' SCREENABLE_HOTSPOT_PSK='…' SCREENABLE_SIM
 # neuestes Release
 curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo bash
 # bestimmte Version, zusätzliche Optionen
-curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo SCREENABLE_VERSION=v0.4.0 SCREENABLE_REBOOT_TIME=05:30 bash
+curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo SCREENABLE_VERSION=v0.5.0 SCREENABLE_REBOOT_TIME=05:30 bash
 ```
 
 Auf einem minimalen Debian ohne `curl` vorher `sudo apt install -y curl` ausführen. Die Prüfsumme schützt vor beschädigten oder abgebrochenen Downloads; die Echtheit hängt am Zugang zum GitHub-Repository.
@@ -73,7 +73,7 @@ curl -fsSL -H "Authorization: Bearer $T" https://raw.githubusercontent.com/scree
 unset T
 ```
 
-Das Token wird nur für den Download verwendet und weder gespeichert noch protokolliert.
+Das Token wird nicht protokolliert. Damit das Dashboard später Updates laden kann, speichert der Installer es in `/etc/screenable-player/github-token` (root, `0600`); weder API noch Player können es lesen. Ein Token mit langer Laufzeit wählen und bei Bedarf durch einen erneuten Aufruf mit neuem Token ersetzen. Wird die Datei gelöscht, kann das Dashboard aus einem privaten Repository keine Updates mehr laden.
 
 ### Release veröffentlichen
 
@@ -134,6 +134,8 @@ journalctl -u ModemManager -u NetworkManager -b | grep -iE 'modem|gsm|bearer' | 
 | `registered`, aber kein Bearer/IP | falscher APN: die Vorgabe `internet.telekom` passt nur für Telekom-SIMs |
 | `signal quality` sehr niedrig, `searching` | Antennen prüfen |
 
+Das Dashboard zeigt unter „LTE“ den Modemzustand, Netzbetreiber, Funktechnik und die Signalqualität in fünf Balken (je angefangene 20 % von ModemManagers `signal quality` ein Balken; ohne Netz null Balken). Die API fragt dafür höchstens alle 10 s `mmcli -m any --output-json` ab; ModemManager erlaubt dieses Lesen ohne Root-Rechte.
+
 Ein vorhandenes LTE-Profil ändert der Installer nicht. Für andere PIN oder APN das Profil löschen und neu anlegen lassen, z. B. für Vodafone:
 
 ```sh
@@ -179,6 +181,8 @@ Die API übernimmt das neue Passwort sofort und meldet alle bestehenden Dashboar
 | `/etc/X11/xorg.conf.d/10-screenable-kiosk.conf` | kein Bildschirmschoner, kein DPMS |
 | `screenable-api.service` | HTTPS-Dashboard, unabhängig von X11, mit systemd-Sandboxing |
 | `screenable-player.service` | User-Dienst in der X11-Session |
+| `screenable-update.path`, `screenable-update.service` | Over-the-Air-Update aus dem Dashboard (root, siehe [Updates aus dem Dashboard](#updates-aus-dem-dashboard)) |
+| `/etc/screenable-player/github-token` | optionales Lese-Token für private Repositories, nur für root lesbar |
 
 Nach einem Kaltstart meldet sich `screenable` auf `tty1` automatisch an, startet Xorg/Openbox und darin den Player-User-Dienst. Ein zweiter Display-Manager oder eine bereits belegte `tty1` muss zuvor entfernt bzw. angepasst werden.
 
@@ -193,6 +197,24 @@ Für Geräte mit Tastatur oder Gamepad im öffentlichen Bereich:
 Chromium-eigene Kürzel zum Schließen (Strg+W, Strg+Umschalt+Q) lassen sich nicht per Richtlinie sperren. Der Player startet den Browser dann nach der eingestellten Verzögerung neu.
 
 ## Updates und Rollback
+
+### Updates aus dem Dashboard
+
+Die Karte „Software-Update“ zeigt die installierte Version. **Nach Updates suchen** fragt das neueste GitHub-Release ab und zeigt dessen Version, Datum und Änderungen; ist es neuer, spielt **Update installieren** es ein. Während der Installation zeigt die Karte die letzten Zeilen der Installerausgabe. Player und Dashboard starten dabei neu; die Anzeige ist kurz unterbrochen und alle Dashboard-Sitzungen enden. Danach erneut anmelden.
+
+Ablauf: Die API läuft ohne Rechte und kann selbst nichts installieren. Sie schreibt nur die Aktion (`check` oder `install`) nach `/run/screenable-player/update-request.json`. `screenable-update.path` startet daraufhin `screenable-update.service` als root, der das neueste Release von `screenable/SignagePlayer` abfragt und `install.sh --download` mit genau dieser Version ausführt – derselbe Weg wie beim Aufruf per `curl`: Download, SHA-256-Prüfung, neues Release, Health-Check und bei einem Fehler automatischer Rollback. Versionen, URLs oder Optionen aus der Anforderung werden nicht angenommen; ein älteres oder gleiches Release wird nie installiert. Fortschritt und Ergebnis stehen in `/run/screenable-player/update.json`, das vollständige Protokoll in `/var/log/screenable-player-install.log`.
+
+Für ein privates Repository muss bei der Installation einmal `SCREENABLE_GITHUB_TOKEN` gesetzt worden sein (siehe [Installation von GitHub](#installation-von-github)); sonst meldet die Suche „Kein Release gefunden“. Der Download läuft über LTE: Ein Update umfasst das Paket (wenige MB) und gegebenenfalls Debian-Pakete aus `apt-get`.
+
+Geräte mit Version 0.4 oder älter haben den Update-Dienst noch nicht: einmal von Hand auf 0.5 aktualisieren (siehe unten), danach geht es über das Dashboard.
+
+```sh
+systemctl status screenable-update.path screenable-update.service
+journalctl -u screenable-update -b --no-pager -n 100
+cat /run/screenable-player/update.json
+```
+
+### Updates von Hand
 
 Neue Version auf einem Testgerät prüfen, dann auf dem Gerät denselben Befehl wie bei der Installation ausführen (oder ein Installationspaket entpacken und `sudo ./install.sh`):
 
@@ -237,6 +259,31 @@ aplay -l   # erscheint keine Karte: firmware-sof-signed installieren und neu sta
 
 Automatische Umschaltung abschalten (z. B. für Klinke): `systemctl --user -M screenable@ edit screenable-player` mit `Environment=SCREENABLE_AUDIO_ROUTING=0`.
 
+Die Lautstärke stellt der Regler „Lautstärke“ im Dashboard ein (0–100 %, 0 = stumm; Standard 100 %). Der Player setzt sie sofort und bei jeder Prüfung erneut, auch wenn sie am Gerät verstellt wurde. Der Browser startet dafür nicht neu. Gespeichert wird sie in `config.json` unter `volume`.
+
+## Startbildschirm und Netzverbindung
+
+Chromium startet erst, wenn der Server der Inhalts-URL per TCP erreichbar ist; so erscheint nach dem Einschalten nie eine Chromium-Fehlerseite, nur weil LTE noch nicht verbunden ist. Bis dahin zeigt der Bildschirm das Screenable-Logo (`splash/` im Release, je nach Ausrichtung Quer- oder Hochformat) als Desktop-Hintergrund; der Player-Status lautet „Wartet auf Internet“ und die Prüfung läuft alle zwei Sekunden. Der Hintergrund bleibt auch während eines Browser-Neustarts sichtbar. Fällt das Netz bei laufendem Browser aus, läuft dieser weiter und lädt die Seite nach der Rückkehr neu.
+
+Das gilt für jeden Browserstart, auch nach einem Absturz. Für Inhalte, die ohne Netz funktionieren, lässt sich das Warten abschalten: `systemctl --user -M screenable@ edit screenable-player` mit `Environment=SCREENABLE_WAIT_FOR_NETWORK=0`. Den Hintergrund setzt `feh`; fehlt es, bleibt der Bildschirm weiß.
+
+## Anwendungen auswählen
+
+Das Feld „Screenable-URL“ durchsucht beim Tippen die Screenable-Anwendungen (Name, Beschreibung und Adresse) und schlägt bis zu acht Treffer vor; Pfeiltasten und Enter wählen aus. Eine eigene HTTPS-Adresse kann weiterhin direkt eingegeben werden. Die Liste lädt die API von `https://screenable.app/lister2` (JSON oder HTML-Links, nur HTTPS-Adressen) und hält sie 15 Minuten vor; „Liste aktualisieren“ lädt sie sofort neu. Ohne Internet bleibt die zuletzt geladene Liste nutzbar. Eine andere Quelle per Drop-in für `screenable-api.service`: `Environment=SCREENABLE_APPS_URL=…`.
+
+## Bildausrichtung
+
+Im Dashboard lässt sich je HDMI-Ausgang die Ausrichtung wählen; sie gilt, sobald dieser Ausgang aktiv ist, auch bei „Automatisch“:
+
+| Auswahl | `xrandr --rotate` | Montage des Bildschirms |
+|---|---|---|
+| Querformat | `normal` | normal |
+| Querformat, 180° gedreht | `inverted` | auf dem Kopf (z. B. Deckenhalterung) |
+| Hochformat, Bild 90° nach links gedreht | `left` | hochkant, im Uhrzeigersinn gedreht (die Oberkante des Monitors zeigt nach rechts) |
+| Hochformat, Bild 90° nach rechts gedreht | `right` | hochkant, gegen den Uhrzeigersinn gedreht (die Oberkante zeigt nach links) |
+
+Steht das Bild nach dem Speichern auf dem Kopf, die andere Hochformat-Richtung wählen. Der Player setzt die Drehung beim Browserstart und nach einem Monitor-Hotplug erneut; Chromium erhält dadurch die hochkant gestellte Auflösung (z. B. 1080×1920). Gespeichert wird sie in `config.json` unter `orientations`, nur für Ausgänge, die nicht im Querformat laufen.
+
 ## Diagnose
 
 ```sh
@@ -246,6 +293,7 @@ journalctl _UID="$(id -u screenable)" -b --no-pager -n 150
 journalctl -p warning -b --no-pager          # nur Warnungen und Fehler
 sudo -u screenable DISPLAY=:0 xrandr --query
 cat /run/screenable-player/status.json
+mmcli -m any                                  # LTE-Signal wie im Dashboard
 cat /opt/screenable-player/current/RELEASE
 ```
 

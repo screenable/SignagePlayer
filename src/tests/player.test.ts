@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { atomicWrite, defaultConfig } from '../config.js';
 
@@ -20,7 +21,7 @@ async function waitFor<T>(read: () => T | null | undefined | false, timeout = 15
   throw new Error('Zeitüberschreitung beim Warten auf den Player.');
 }
 
-function startPlayer(prepare?: (dir: string) => void) {
+function startPlayer(prepare?: (dir: string) => void, env: Record<string, string> = { SCREENABLE_WAIT_FOR_NETWORK: '0' }) {
   const dir = mkdtempSync(join(tmpdir(), 'screenable-player-'));
   const bin = join(dir, 'bin');
   const runtime = join(dir, 'run');
@@ -36,6 +37,7 @@ function startPlayer(prepare?: (dir: string) => void) {
   *) echo "$*" >> "${dir}/xrandr.log"; echo "${connectedOn}" > "${dir}/xrandr.txt" ;;
 esac`);
   script('xdotool', 'exit 1');
+  script('feh', `echo "$*" >> "${dir}/feh.log"`);
   script('chromium', `printf '%s\\n' "$@" > "${dir}/chromium-args"; exec sleep 100`);
   atomicWrite(join(dir, 'config.json'), JSON.stringify({ ...defaultConfig, contentUrl: 'https://example.com/', recovery: { browserRestartDelaySeconds: 1, maxRapidRestarts: 5 } }));
   prepare?.(dir);
@@ -43,7 +45,8 @@ esac`);
     cwd: process.cwd(), stdio: 'ignore',
     env: {
       ...process.env, PATH: `${bin}:${process.env.PATH}`, DISPLAY: ':99', SCREENABLE_STATE_DIR: dir, SCREENABLE_RUN_DIR: runtime,
-      SCREENABLE_DISPLAY_CHECK_MS: '200', SCREENABLE_CHROMIUM_FLAGS: '--enable-features=TestFeature',
+      SCREENABLE_DISPLAY_CHECK_MS: '200', SCREENABLE_CHROMIUM_FLAGS: '--enable-features=TestFeature', SCREENABLE_AUDIO_ROUTING: '0',
+      ...env,
     },
   });
   const status = () => JSON.parse(readFileSync(join(runtime, 'status.json'), 'utf8')) as Status;
@@ -116,7 +119,62 @@ test('Hotplug: abgeschalteter Ausgang wird nach Entprellung neu gesetzt', { time
     assert.notEqual(second, first);
     const calls = readFileSync(join(player.dir, 'xrandr.log'), 'utf8').trim().split('\n');
     assert.equal(calls.length, 2);
-    assert.match(calls[1], /--output HDMI-1 --primary --auto --pos 0x0/);
+    assert.match(calls[1], /--output HDMI-1 --primary --auto --rotate normal --pos 0x0/);
     assert.equal(player.status().lastError, null);
+  } finally { await player.stop(); }
+});
+
+test('Ausrichtung je Ausgang wird per xrandr gesetzt und nach Änderung neu angewendet', { timeout: 30_000 }, async () => {
+  const player = startPlayer(dir => {
+    atomicWrite(join(dir, 'config.json'), JSON.stringify({ ...defaultConfig, contentUrl: 'https://example.com/', orientations: { 'HDMI-1': 'left', 'HDMI-2': 'right' }, recovery: { browserRestartDelaySeconds: 1, maxRapidRestarts: 5 } }));
+  });
+  try {
+    const first = await player.running();
+    assert.match(readFileSync(join(player.dir, 'xrandr.log'), 'utf8'), /--output HDMI-1 --primary --auto --rotate left --pos 0x0/);
+    assert.equal((player.status() as Status & { orientation: string }).orientation, 'left');
+    atomicWrite(join(player.dir, 'config.json'), JSON.stringify({ ...defaultConfig, revision: 1, contentUrl: 'https://example.com/', orientations: { 'HDMI-1': 'inverted' }, recovery: { browserRestartDelaySeconds: 1, maxRapidRestarts: 5 } }));
+    await player.running(first);
+    const calls = readFileSync(join(player.dir, 'xrandr.log'), 'utf8').trim().split('\n');
+    assert.match(calls.at(-1)!, /--rotate inverted/);
+  } finally { await player.stop(); }
+});
+
+test('Browser startet erst mit erreichbarem Inhalteserver, vorher Splashscreen', { timeout: 40_000 }, async () => {
+  // Port reservieren und wieder freigeben: zunächst ist der Inhalteserver nicht erreichbar.
+  const probe = createServer().listen(0, '127.0.0.2');
+  await once(probe, 'listening');
+  const port = (probe.address() as { port: number }).port;
+  probe.close();
+  await once(probe, 'close');
+  const url = `https://127.0.0.2:${port}/`;
+  const player = startPlayer(dir => {
+    atomicWrite(join(dir, 'config.json'), JSON.stringify({ ...defaultConfig, contentUrl: url, recovery: { browserRestartDelaySeconds: 1, maxRapidRestarts: 5 } }));
+  }, { SCREENABLE_SPLASH_DIR: '/splash' });
+  const server = createServer(socket => socket.destroy());
+  try {
+    await waitFor(() => player.status().state === 'waiting_for_network');
+    assert.match(readFileSync(join(player.dir, 'feh.log'), 'utf8'), /--no-fehbg --bg-fill \/splash\/splash-landscape\.png/);
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    assert.equal(existsSync(join(player.dir, 'chromium-args')), false, 'Chromium darf ohne Netz nicht starten');
+    assert.equal(player.status().browserPid, null);
+    // Layout wurde nur einmal gesetzt, nicht bei jedem Warteversuch.
+    assert.equal(readFileSync(join(player.dir, 'xrandr.log'), 'utf8').trim().split('\n').length, 1);
+    server.listen(port, '127.0.0.2');
+    await once(server, 'listening');
+    await player.running();
+    assert.equal(readFileSync(join(player.dir, 'chromium-args'), 'utf8').split('\n').filter(Boolean).at(-1), url);
+  } finally {
+    server.close();
+    await player.stop();
+  }
+});
+
+test('Lautstärkeänderung startet den Browser nicht neu', { timeout: 30_000 }, async () => {
+  const player = startPlayer();
+  try {
+    const first = await player.running();
+    atomicWrite(join(player.dir, 'config.json'), JSON.stringify({ ...defaultConfig, revision: 1, volume: 30, contentUrl: 'https://example.com/', recovery: { browserRestartDelaySeconds: 1, maxRapidRestarts: 5 } }));
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    assert.equal(player.status().browserPid, first);
   } finally { await player.stop(); }
 });
