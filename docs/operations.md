@@ -32,7 +32,7 @@ Optionen werden als Umgebungsvariablen übergeben und in `/etc/screenable-player
 | `SCREENABLE_HOTSPOT_ADDRESS` | `10.42.0.1` | Feste Adresse des Geräts im Hotspot |
 | `SCREENABLE_ADMIN_INTERFACES` | WLAN-Gerät des Hotspots | Schnittstellen mit Verwaltungszugang, durch Leerzeichen getrennt |
 | `SCREENABLE_FIREWALL` | `1` | Eingehende Verbindungen nur über die Verwaltungsschnittstellen |
-| `SCREENABLE_LTE` | `auto` | LTE-Profil anlegen: `auto` nur mit erkanntem Modem, `1` immer, `0` nie |
+| `SCREENABLE_LTE` | `auto` | LTE-Profil anlegen: `auto`/`1` immer (verbindet, sobald ein Modem erscheint), `0` nie |
 | `SCREENABLE_LTE_CONNECTION` | `Telekom-LTE` | NetworkManager-Profil für LTE |
 | `SCREENABLE_LTE_APN` | `internet.telekom` | APN, nur beim Anlegen des Profils |
 | `SCREENABLE_LTE_DNS` | `1.1.1.1 8.8.8.8` | IPv4-DNS-Server, nur beim Anlegen des Profils |
@@ -111,7 +111,7 @@ Wird das Installationsskript per SSH über eine andere Schnittstelle ausgeführt
 
 ### Mobilfunk prüfen
 
-Der Installer wartet bis zu 60 s auf das Modem, prüft danach die LTE-Verbindung und gibt bei einem Fehler den Modemzustand aus. Am Gerät:
+Der Installer legt das LTE-Profil immer an, wartet bei der Ersteinrichtung bis zu 60 s auf das Modem, prüft danach die LTE-Verbindung und gibt bei einem Fehler den Modemzustand aus. Am Gerät:
 
 ```sh
 nmcli device status                      # gsm-Gerät: "verbunden"?
@@ -127,6 +127,7 @@ journalctl -u ModemManager -u NetworkManager -b | grep -iE 'modem|gsm|bearer' | 
 | `state: locked`, `lock: sim-pin` | PIN fehlt oder falsch, Profil neu anlegen (siehe unten) |
 | `failed reason: sim-missing` | SIM nicht gesteckt oder falsch eingelegt |
 | `power state: low`, `state: disabled` und `FCC lock` im Journal | FCC-Sperre des Moduls: `sudo ln -s /usr/share/ModemManager/fcc-unlock.available.d/<vid:pid> /etc/ModemManager/fcc-unlock.d/` |
+| `registered`, `attached`, aber `nmcli device status` zeigt `gsm … nicht verbunden --` | kein LTE-Profil vorhanden (ältere Installer übersprangen es, wenn das Modem noch nicht erkannt war): Installer erneut ausführen |
 | `registered`, aber kein Bearer/IP | falscher APN: die Vorgabe `internet.telekom` passt nur für Telekom-SIMs |
 | `signal quality` sehr niedrig, `searching` | Antennen prüfen |
 

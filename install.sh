@@ -28,7 +28,7 @@ beim Aufruf gesetzte Werte haben Vorrang):
   SCREENABLE_HOTSPOT_ADDRESS=10.42.0.1          feste Adresse des Geräts im Hotspot
   SCREENABLE_ADMIN_INTERFACES=…                 Schnittstellen mit Verwaltungszugang (Standard: WLAN des Hotspots)
   SCREENABLE_FIREWALL=1|0                       eingehende Verbindungen nur aus dem Hotspot
-  SCREENABLE_LTE=auto|1|0                       LTE-Profil anlegen (auto: wenn ein Modem erkannt wird)
+  SCREENABLE_LTE=auto|1|0                       LTE-Profil anlegen (auto/1: immer, 0: nie)
   SCREENABLE_LTE_CONNECTION=Telekom-LTE         NetworkManager-Profil für LTE
   SCREENABLE_LTE_APN=internet.telekom           APN, nur beim Anlegen des Profils
   SCREENABLE_LTE_DNS="1.1.1.1 8.8.8.8"          IPv4-DNS-Server, nur beim Anlegen des Profils
@@ -336,7 +336,7 @@ fi
 step 'Mobilfunk (LTE)'
 existing_lte=$(nmcli -t -f NAME,TYPE connection show | first_match gsm)
 has_modem() { mmcli -L 2>/dev/null | grep '/Modem/' >/dev/null; }
-if [ "${lte}" = auto ] && [ -z "${existing_lte}" ] && ! has_modem; then
+if [ "${lte}" != 0 ] && [ -z "${existing_lte}" ] && ! has_modem; then
   # ModemManager ist eventuell gerade erst gestartet und tastet das Modem noch ab.
   note 'Warte bis zu 60 s auf das Modem …'
   for _ in $(seq 1 30); do has_modem && break; sleep 2; done
@@ -345,9 +345,10 @@ if [ "${lte}" = 0 ]; then
   note 'Übersprungen (SCREENABLE_LTE=0).'
 elif [ -n "${existing_lte}" ]; then
   ok "Profil '${existing_lte}' vorhanden, unverändert"
-elif [ "${lte}" = auto ] && ! has_modem; then
-  note 'Kein Modem erkannt, übersprungen. Mit SCREENABLE_LTE=1 trotzdem anlegen.'
 else
+  # Das Profil wird auch ohne erkanntes Modem angelegt: NetworkManager verbindet,
+  # sobald das Modem erscheint. Ohne Modem bleibt es wirkungslos.
+  has_modem || note 'Noch kein Modem erkannt; Profil wird trotzdem angelegt.'
   pin=${SCREENABLE_SIM_PIN:-}
   if [ -z "${pin}" ] && [ -z "${SCREENABLE_SIM_PIN+x}" ] && [ "${interactive}" = 1 ]; then
     ask_secret pin 'SIM-PIN (leer lassen, wenn die SIM keine PIN hat)' 0
@@ -383,7 +384,9 @@ route-metric=600"
   ok "Profil '${lte_connection}' angelegt (APN ${lte_apn})"
   existing_lte=${lte_connection}
 fi
-if [ "${lte}" != 0 ] && [ -n "${existing_lte}" ]; then
+if [ "${lte}" != 0 ] && [ -n "${existing_lte}" ] && ! has_modem; then
+  note 'Kein Modem erkannt: Modul, BIOS (WWAN aktiviert?), rfkill list und lsusb prüfen. Das Profil verbindet, sobald das Modem erscheint.'
+elif [ "${lte}" != 0 ] && [ -n "${existing_lte}" ]; then
   lte_state=''
   for _ in $(seq 1 30); do
     lte_state=$(nmcli -g GENERAL.STATE connection show "${existing_lte}" 2>/dev/null || true)
@@ -394,11 +397,7 @@ if [ "${lte}" != 0 ] && [ -n "${existing_lte}" ]; then
     ok "LTE verbunden ($(nmcli -g IP4.ADDRESS connection show "${existing_lte}" 2>/dev/null | head -n 1 || true))"
   else
     note "LTE nicht verbunden (APN $(nmcli -g gsm.apn connection show "${existing_lte}" 2>/dev/null || echo '?')). Modemzustand:"
-    if has_modem; then
-      mmcli -m any 2>&1 | grep -Ei 'state|reason|lock|registration|operator name|access tech|signal quality|sim|imei' | sed 's/^/        /' || true
-    else
-      note 'Kein Modem erkannt (mmcli -L leer): Modul, Antenne, BIOS-Einstellung und rfkill prüfen.'
-    fi
+    mmcli -m any 2>&1 | grep -Ei 'state|reason|lock|registration|operator name|access tech|signal quality|sim|imei' | sed 's/^/        /' || true
     note "Hinweise: docs/operations.md, Abschnitt \"Mobilfunk prüfen\"."
   fi
 fi
