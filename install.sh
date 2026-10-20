@@ -20,7 +20,7 @@ Aufruf: sudo ./install.sh
                                         (so spielt das Dashboard Over-the-Air-Updates ein)
 
 Download von GitHub (beim Aufruf per curl oder mit --download):
-  SCREENABLE_VERSION=v0.5.0                     bestimmtes Release statt des neuesten
+  SCREENABLE_VERSION=v0.6.0                     bestimmtes Release statt des neuesten
   SCREENABLE_GITHUB_TOKEN=…                     Lese-Token, solange das Repository privat ist; wird für
                                                 Updates aus dem Dashboard in /etc/screenable-player/github-token
                                                 gespeichert (nur für root lesbar)
