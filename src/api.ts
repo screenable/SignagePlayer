@@ -283,9 +283,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       if (!match || !/^"?[0-9]+"?$/.test(match.toString())) { json(res, 428, { error: 'If-Match mit Revision erforderlich.' }); return; }
       const current = readConfig(configPath);
       const data = await body(req);
-      const next = { ...current, outputId: data.outputId, contentUrl: data.contentUrl, orientations: data.orientations ?? current.orientations, volume: data.volume ?? current.volume };
+      const next = { ...current, outputId: data.outputId, contentUrl: data.contentUrl, orientations: data.orientations ?? current.orientations, resolutions: data.resolutions ?? current.resolutions, volume: data.volume ?? current.volume };
       const updated = saveConfig(configPath, next, Number(match.toString().replaceAll('"', '')));
-      log('info', 'config_updated', { ip: clientIp(req), revision: updated.revision, outputId: updated.outputId, orientations: updated.orientations, hasContentUrl: !!updated.contentUrl });
+      log('info', 'config_updated', { ip: clientIp(req), revision: updated.revision, outputId: updated.outputId, orientations: updated.orientations, resolutions: updated.resolutions, hasContentUrl: !!updated.contentUrl });
       json(res, 200, updated); return;
     }
     if (pathname === '/api/v1/status' && req.method === 'GET') {

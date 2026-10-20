@@ -4,7 +4,7 @@ import { scryptSync } from 'node:crypto';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { atomicWrite, defaultConfig, orientationFor, readConfig, saveConfig, validateConfig, validateContentUrl } from '../config.js';
+import { atomicWrite, defaultConfig, orientationFor, readConfig, resolutionFor, saveConfig, validateConfig, validateContentUrl } from '../config.js';
 import { createSecrets, readSecrets, saveSecrets, verifyPassword } from '../auth.js';
 
 test('URL-Policy und Single-Konfiguration', () => {
@@ -78,4 +78,16 @@ test('bestehende Secrets ohne scrypt-Parameter bleiben gültig', async () => {
     writeFileSync(path, JSON.stringify({ salt, passwordHash: 'kein-hex' }));
     assert.throws(() => readSecrets(path));
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Auflösungen je Ausgang werden validiert', () => {
+  const config = validateConfig({ ...defaultConfig, resolutions: { 'HDMI-1': '3840x2160', 'HDMI-2': '1280x720' } });
+  assert.equal(resolutionFor(config, 'HDMI-1'), '3840x2160');
+  assert.equal(resolutionFor(config, 'DP-1'), null);
+  assert.equal(resolutionFor(config, 'constructor'), null);
+  const { resolutions: _, ...legacy } = defaultConfig;
+  assert.deepEqual(validateConfig(legacy).resolutions, {});
+  for (const resolutions of [{ 'HDMI-1': '1024x768' }, { 'HDMI-1': '1920x1080; reboot' }, { '; rm -rf /': '1920x1080' }, ['1920x1080'], '1920x1080']) {
+    assert.throws(() => validateConfig({ ...defaultConfig, resolutions }), JSON.stringify(resolutions));
+  }
 });

@@ -2,10 +2,11 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 
 type Orientation = 'normal' | 'inverted' | 'left' | 'right';
-type Config = { revision: number; mode: 'single'; outputId: string | null; contentUrl: string | null; orientations?: Record<string, Orientation>; volume?: number };
+type Resolution = '1280x720' | '1920x1080' | '3840x2160';
+type Config = { revision: number; mode: 'single'; outputId: string | null; contentUrl: string | null; orientations?: Record<string, Orientation>; resolutions?: Record<string, Resolution>; volume?: number };
 type App = { name: string; url: string; description: string | null };
 type AppList = { source: string; apps: App[]; fetchedAt: string | null; error: string | null };
-type Display = { id: string; primary: boolean; geometry: string | null; rotation?: Orientation };
+type Display = { id: string; primary: boolean; geometry: string | null; rotation?: Orientation; modes?: string[] };
 type Player = { state: string; browserPid: number | null; outputId: string | null; orientation?: Orientation | null; displays?: Display[]; network?: string; audioOutput?: string | null; lastError: string | null; updatedAt?: string };
 type Lte = { present: boolean; state: string | null; operator: string | null; technology: string | null; quality: number | null; bars: number; error: string | null };
 type Status = { version: string; tls: { validTo: string; daysLeft: number; expiresSoon: boolean } | null; player: Player; lte?: Lte };
@@ -31,6 +32,11 @@ const orientationLabels: Record<Orientation, string> = {
   left: 'Hochformat, Bild 90° nach links gedreht',
   right: 'Hochformat, Bild 90° nach rechts gedreht',
 };
+const resolutionLabels: Record<Resolution, string> = {
+  '1280x720': '720p (1280 × 720)',
+  '1920x1080': '1080p (1920 × 1080)',
+  '3840x2160': '4K (3840 × 2160)',
+};
 const modemStates: Record<string, string> = {
   connected: 'Verbunden', registered: 'Im Netz, ohne Datenverbindung', connecting: 'Verbindet …', disconnecting: 'Trennt …',
   searching: 'Sucht Netz', enabled: 'Bereit, kein Netz', enabling: 'Startet', disabled: 'Ausgeschaltet', disabling: 'Schaltet aus',
@@ -51,6 +57,7 @@ const status = ref<Status | null>(null);
 const contentUrl = ref('');
 const outputId = ref('');
 const orientations = ref<Record<string, Orientation>>({});
+const resolutions = ref<Record<string, Resolution>>({});
 const update = ref<Update | null>(null);
 const volume = ref(100);
 const appCatalog = ref<AppList | null>(null);
@@ -67,6 +74,15 @@ const outputs = computed(() => {
   // Konfigurierten, aktuell getrennten Ausgang weiter anzeigen, statt die Auswahl still zu leeren.
   if (config.value?.outputId && !list.some(d => d.id === config.value!.outputId)) list.push({ id: config.value.outputId, primary: false, geometry: null });
   return list;
+});
+
+// Aktuelle Auflösung des aktiven Ausgangs, unabhängig von der Drehung.
+const activeResolution = computed(() => {
+  const player = status.value?.player;
+  const size = player?.displays?.find(d => d.id === player.outputId)?.geometry?.match(/^(\d+)x(\d+)/);
+  if (!size) return '–';
+  const [w, h] = [Number(size[1]), Number(size[2])].sort((a, b) => b - a);
+  return `${w} × ${h}`;
 });
 
 const lte = computed(() => status.value?.lte);
@@ -154,6 +170,7 @@ async function load() {
   contentUrl.value = c.contentUrl || '';
   outputId.value = c.outputId || '';
   orientations.value = { ...c.orientations };
+  resolutions.value = { ...c.resolutions };
   volume.value = c.volume ?? 100;
   void loadApps();
 }
@@ -169,6 +186,17 @@ function setOrientation(id: string, value: string) {
   const next = { ...orientations.value };
   if (value === 'normal') delete next[id]; else next[id] = value as Orientation;
   orientations.value = next;
+}
+
+function resolutionOf(id: string): string { return resolutions.value[id] || ''; }
+function setResolution(id: string, value: string) {
+  const next = { ...resolutions.value };
+  if (!value) delete next[id]; else next[id] = value as Resolution;
+  resolutions.value = next;
+}
+// Nur Modi sperren, die ein angeschlossener Bildschirm sicher nicht anbietet.
+function resolutionSupported(display: Display, value: string): boolean {
+  return !display.modes?.length || display.modes.includes(value);
 }
 
 async function updateAction(name: 'check' | 'install') {
@@ -200,7 +228,7 @@ async function save() {
     const next = await request('/config', {
       method: 'PUT',
       headers: { 'if-match': String(config.value.revision) },
-      body: JSON.stringify({ outputId: outputId.value || null, contentUrl: contentUrl.value.trim() || null, orientations: orientations.value }),
+      body: JSON.stringify({ outputId: outputId.value || null, contentUrl: contentUrl.value.trim() || null, orientations: orientations.value, resolutions: resolutions.value }),
     });
     config.value = next;
     message.value = 'Gespeichert. Der Player übernimmt die Änderung in wenigen Sekunden.';
@@ -298,16 +326,21 @@ onUnmounted(() => {
               <option value="">Automatisch (Primäranzeige)</option>
               <option v-for="display in outputs" :key="display.id" :value="display.id">{{ display.id }} {{ display.geometry ? `· ${display.geometry}` : '' }}</option>
             </select>
-            <label>Ausrichtung je HDMI-Ausgang</label>
+            <label>Auflösung und Ausrichtung je HDMI-Ausgang</label>
             <div v-if="outputs.length" class="orientation-list">
               <div v-for="display in outputs" :key="display.id" class="orientation-row">
                 <span class="orientation-name">{{ display.id }}<small v-if="display.geometry">{{ display.geometry.split('+')[0] }}</small></span>
+                <select :aria-label="`Auflösung ${display.id}`" :value="resolutionOf(display.id)" @change="setResolution(display.id, ($event.target as HTMLSelectElement).value)">
+                  <option value="">Automatisch (bevorzugt)</option>
+                  <option v-for="(label, value) in resolutionLabels" :key="value" :value="value" :disabled="!resolutionSupported(display, value)">{{ label }}{{ resolutionSupported(display, value) ? '' : ' – nicht unterstützt' }}</option>
+                </select>
                 <select :aria-label="`Ausrichtung ${display.id}`" :value="orientationOf(display.id)" @change="setOrientation(display.id, ($event.target as HTMLSelectElement).value)">
                   <option v-for="(label, value) in orientationLabels" :key="value" :value="value">{{ label }}</option>
                 </select>
               </div>
             </div>
             <p v-else class="hint">Kein Bildschirm erkannt.</p>
+            <p class="hint">„Automatisch“ nutzt die vom Bildschirm bevorzugte Auflösung. Bietet der Bildschirm die gewählte Auflösung nicht an, fällt der Player darauf zurück.</p>
             <p class="hint">„Nach links“ dreht das Bild gegen den Uhrzeigersinn – richtig für einen Bildschirm, der im Uhrzeigersinn hochkant montiert ist; „nach rechts“ für die Gegenrichtung.</p>
             <button class="primary" :disabled="busy">Änderungen speichern</button>
           </form>
@@ -319,6 +352,7 @@ onUnmounted(() => {
             <div><dt>Zustand</dt><dd>{{ playerState.label }}</dd></div>
             <div><dt>Browser PID</dt><dd>{{ status?.player.browserPid || '–' }}</dd></div>
             <div><dt>Aktiver Ausgang</dt><dd>{{ status?.player.outputId || '–' }}</dd></div>
+            <div><dt>Auflösung</dt><dd>{{ activeResolution }}</dd></div>
             <div><dt>Ausrichtung</dt><dd>{{ status?.player.orientation ? orientationLabels[status.player.orientation] : '–' }}</dd></div>
             <div>
               <dt>LTE</dt>

@@ -178,3 +178,24 @@ test('Lautstärkeänderung startet den Browser nicht neu', { timeout: 30_000 }, 
     assert.equal(player.status().browserPid, first);
   } finally { await player.stop(); }
 });
+
+test('Gewählte Auflösung wird per xrandr gesetzt, fehlende fällt auf den bevorzugten Modus zurück', { timeout: 30_000 }, async () => {
+  const modes = '   3840x2160     60.00 +  30.00\n   1920x1080     60.00*   50.00\n   1920x1080i    60.00\n   1280x720      60.00\n';
+  const player = startPlayer(dir => {
+    writeFileSync(join(dir, 'xrandr.txt'), `${connectedOn}\n${modes}HDMI-2 disconnected (normal left inverted right x axis y axis)\n   800x600       60.00\n`);
+    atomicWrite(join(dir, 'config.json'), JSON.stringify({ ...defaultConfig, contentUrl: 'https://example.com/', resolutions: { 'HDMI-1': '1280x720' }, recovery: { browserRestartDelaySeconds: 1, maxRapidRestarts: 5 } }));
+  });
+  try {
+    const first = await player.running();
+    assert.match(readFileSync(join(player.dir, 'xrandr.log'), 'utf8'), /--output HDMI-1 --primary --mode 1280x720 --rotate normal --pos 0x0/);
+    const status = player.status() as Status & { resolution: string; displays: { id: string; modes: string[] }[] };
+    assert.equal(status.resolution, '1280x720');
+    // Fake-xrandr meldet nach dem Layout-Aufruf keine Modi mehr; neu einspielen für die nächste Abfrage.
+    writeFileSync(join(player.dir, 'xrandr.txt'), `${connectedOn}\n   1920x1080     60.00*+\n`);
+    atomicWrite(join(player.dir, 'config.json'), JSON.stringify({ ...defaultConfig, revision: 1, contentUrl: 'https://example.com/', resolutions: { 'HDMI-1': '3840x2160' }, recovery: { browserRestartDelaySeconds: 1, maxRapidRestarts: 5 } }));
+    await player.running(first);
+    const calls = readFileSync(join(player.dir, 'xrandr.log'), 'utf8').trim().split('\n');
+    assert.match(calls.at(-1)!, /--output HDMI-1 --primary --auto --rotate normal/);
+    assert.deepEqual((player.status() as Status & { displays: { id: string; modes: string[] }[] }).displays, [{ id: 'HDMI-1', primary: true, geometry: '1920x1080+0+0', rotation: 'normal', modes: [] }]);
+  } finally { await player.stop(); }
+});

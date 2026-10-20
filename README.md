@@ -48,6 +48,7 @@ Auf `http://127.0.0.1:8080` ist das Dashboard lokal erreichbar. Das Image wird v
 - Anmeldung mit scrypt-Passworthash, Session-Cookie, CSRF-Token und begrenzten Login-Versuchen; Passwortwechsel per `cli.js passwd` meldet alle Sitzungen ab.
 - HTTPS-Inhalts-URL, wählbarer HDMI-Ausgang, validierte Version-1-Konfiguration mit Revision und Backup.
 - Ausrichtung je HDMI-Ausgang: Querformat, Querformat 180° oder Hochformat in beide Richtungen (`xrandr --rotate`).
+- Auflösung je HDMI-Ausgang: automatisch, 720p, 1080p oder 4K (`xrandr --mode`), mit Rückfall auf den bevorzugten Modus.
 - Over-the-Air-Updates aus dem Dashboard: nach neuen GitHub-Releases suchen und sie einspielen, mit Prüfsumme, Health-Check und automatischem Rollback; die Installation übernimmt ein eigener root-Dienst, die API bleibt ohne Rechte.
 - LTE-Empfang im Dashboard: Modemzustand, Netzbetreiber, Funktechnik und Signal in fünf Balken.
 - Startbildschirm mit Screenable-Logo: Chromium startet erst, wenn der Inhalteserver erreichbar ist.
