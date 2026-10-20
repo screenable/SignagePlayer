@@ -12,7 +12,7 @@ Direkt von GitHub, mit dem neuesten Release:
 curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo bash
 ```
 
-Das Skript lädt das fertig gebaute Paket des Releases, prüft dessen SHA-256-Prüfsumme und installiert es; auf dem Gerät ist kein npm nötig. Eine bestimmte Version: `… | sudo SCREENABLE_VERSION=v0.5.0 bash`. Solange das Repository privat ist, braucht der Download ein Lese-Token (siehe [Betrieb](docs/operations.md#installation-von-github)).
+Das Skript lädt das fertig gebaute Paket des Releases, prüft dessen SHA-256-Prüfsumme und installiert es; auf dem Gerät ist kein npm nötig. Eine bestimmte Version: `… | sudo SCREENABLE_VERSION=v0.6.0 bash`. Solange das Repository privat ist, braucht der Download ein Lese-Token (siehe [Betrieb](docs/operations.md#installation-von-github)).
 
 Alternativ aus einem entpackten Installationspaket (`npm run package`) oder Git-Checkout: `sudo ./install.sh`. Im Checkout baut das Skript bei Bedarf selbst (als aufrufender Benutzer, installiert dafür npm).
 
@@ -48,6 +48,7 @@ Auf `http://127.0.0.1:8080` ist das Dashboard lokal erreichbar. Das Image wird v
 - Anmeldung mit scrypt-Passworthash, Session-Cookie, CSRF-Token und begrenzten Login-Versuchen; Passwortwechsel per `cli.js passwd` meldet alle Sitzungen ab.
 - HTTPS-Inhalts-URL, wählbarer HDMI-Ausgang, validierte Version-1-Konfiguration mit Revision und Backup.
 - Ausrichtung je HDMI-Ausgang: Querformat, Querformat 180° oder Hochformat in beide Richtungen (`xrandr --rotate`).
+- Auflösung je HDMI-Ausgang: automatisch, 720p, 1080p oder 4K (`xrandr --mode`), mit Rückfall auf den bevorzugten Modus.
 - Over-the-Air-Updates aus dem Dashboard: nach neuen GitHub-Releases suchen und sie einspielen, mit Prüfsumme, Health-Check und automatischem Rollback; die Installation übernimmt ein eigener root-Dienst, die API bleibt ohne Rechte.
 - LTE-Empfang im Dashboard: Modemzustand, Netzbetreiber, Funktechnik und Signal in fünf Balken.
 - Startbildschirm mit Screenable-Logo: Chromium startet erst, wenn der Inhalteserver erreichbar ist.

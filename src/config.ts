@@ -7,6 +7,9 @@ import { dirname, join } from 'node:path';
 export const orientations = ['normal', 'inverted', 'left', 'right'] as const;
 export type Orientation = typeof orientations[number];
 const MAX_ORIENTATIONS = 16;
+// Feste Auflösungen je Ausgang (`xrandr --mode`); ohne Eintrag gilt der bevorzugte Modus des Bildschirms.
+export const resolutions = ['1280x720', '1920x1080', '3840x2160'] as const;
+export type Resolution = typeof resolutions[number];
 const outputPattern = /^[A-Za-z0-9_.-]{1,64}$/;
 
 export type Config = {
@@ -17,6 +20,8 @@ export type Config = {
   contentUrl: string | null;
   // Ausrichtung je HDMI-Ausgang; fehlende Ausgänge laufen im Querformat.
   orientations: Record<string, Orientation>;
+  // Auflösung je HDMI-Ausgang; fehlende Ausgänge nutzen den bevorzugten Modus.
+  resolutions: Record<string, Resolution>;
   // Lautstärke des HDMI-Tons in Prozent; 0 schaltet stumm.
   volume: number;
   recovery: { browserRestartDelaySeconds: number; maxRapidRestarts: number };
@@ -29,6 +34,7 @@ export const defaultConfig: Config = {
   outputId: null,
   contentUrl: null,
   orientations: {},
+  resolutions: {},
   volume: 100,
   recovery: { browserRestartDelaySeconds: 5, maxRapidRestarts: 5 },
 };
@@ -47,6 +53,7 @@ export function validateConfig(value: unknown): Config {
   }
   if (c.contentUrl !== null) validateContentUrl(c.contentUrl);
   const orientationMap = validateOrientations(c.orientations);
+  const resolutionMap = validateResolutions(c.resolutions);
   // Ältere Konfigurationen ohne Lautstärke spielen wie bisher mit 100 %.
   const volume = c.volume === undefined ? 100 : c.volume;
   if (!Number.isInteger(volume) || (volume as number) < 0 || (volume as number) > 100) throw new ValidationError('Lautstärke muss zwischen 0 und 100 liegen.');
@@ -58,7 +65,7 @@ export function validateConfig(value: unknown): Config {
   if (!Number.isInteger(max) || (max as number) < 1 || (max as number) > 20) throw new ValidationError('Ungültige Neustartgrenze.');
   return {
     schemaVersion: 1, revision: c.revision as number, mode: 'single',
-    outputId: c.outputId as string | null, contentUrl: c.contentUrl as string | null, orientations: orientationMap, volume: volume as number,
+    outputId: c.outputId as string | null, contentUrl: c.contentUrl as string | null, orientations: orientationMap, resolutions: resolutionMap, volume: volume as number,
     recovery: { browserRestartDelaySeconds: delay as number, maxRapidRestarts: max as number },
   };
 }
@@ -77,6 +84,25 @@ function validateOrientations(value: unknown): Record<string, Orientation> {
     if (orientation !== 'normal') result[output] = orientation as Orientation;
   }
   return result;
+}
+
+// Wie bei den Ausrichtungen: ältere Konfigurationen ohne das Feld bleiben gültig.
+function validateResolutions(value: unknown): Record<string, Resolution> {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) throw new ValidationError('Ungültige Auflösungen.');
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > MAX_ORIENTATIONS) throw new ValidationError('Zu viele Auflösungen.');
+  const result: Record<string, Resolution> = {};
+  for (const [output, resolution] of entries) {
+    if (!outputPattern.test(output)) throw new ValidationError('Ungültiger Display-Ausgang in den Auflösungen.');
+    if (!resolutions.includes(resolution as Resolution)) throw new ValidationError(`Ungültige Auflösung für ${output}.`);
+    result[output] = resolution as Resolution;
+  }
+  return result;
+}
+
+export function resolutionFor(config: Config, output: string): Resolution | null {
+  return Object.hasOwn(config.resolutions, output) ? config.resolutions[output] : null;
 }
 
 export function orientationFor(config: Config, output: string): Orientation {

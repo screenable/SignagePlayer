@@ -5,6 +5,7 @@
   "outputId": null,
   "contentUrl": "https://example.screenable.invalid/game",
   "orientations": { "HDMI-2": "left" },
+  "resolutions": { "HDMI-2": "1920x1080" },
   "volume": 80,
   "recovery": {
     "browserRestartDelaySeconds": 5,

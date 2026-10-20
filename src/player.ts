@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { routeHdmiAudio } from './audio.js';
-import { atomicWrite, orientationFor, readConfig, type Config, type Orientation } from './config.js';
+import { atomicWrite, orientationFor, readConfig, resolutionFor, type Config, type Orientation, type Resolution } from './config.js';
 import { errorText, log, version } from './log.js';
 import { commandPath, configPath, runDir, stateDir, statusPath } from './paths.js';
 
@@ -30,7 +30,8 @@ const COMMAND_MAX_AGE_MS = 60_000;
 const WAIT_FOR_NETWORK = process.env.SCREENABLE_WAIT_FOR_NETWORK !== '0';
 const splashDir = process.env.SCREENABLE_SPLASH_DIR || fileURLToPath(new URL('../splash/', import.meta.url));
 
-type Display = { id: string; primary: boolean; geometry: string | null; rotation: Orientation };
+// modes: vom Bildschirm angebotene, nicht interlaced Auflösungen (z. B. 1920x1080).
+type Display = { id: string; primary: boolean; geometry: string | null; rotation: Orientation; modes: string[] };
 type State = 'waiting_for_url' | 'waiting_for_display' | 'waiting_for_network' | 'running' | 'restarting' | 'error';
 let config: Config | null = null;
 let browser: ChildProcess | null = null;
@@ -85,7 +86,8 @@ function report(): void {
   try {
     atomicWrite(statusPath, JSON.stringify({
       version, state, browserPid: browser?.pid || null, browserStartedAt, contentUrl: config?.contentUrl || null,
-      outputId: selectedOutput, orientation: selectedOutput && config ? orientationFor(config, selectedOutput) : null, displays, network, audioOutput, rapidRestarts, lastError,
+      outputId: selectedOutput, orientation: selectedOutput && config ? orientationFor(config, selectedOutput) : null,
+      resolution: selectedOutput && config ? resolutionFor(config, selectedOutput) : null, displays, network, audioOutput, rapidRestarts, lastError,
       updatedAt: new Date().toISOString(),
     }) + '\n');
     problem('status_write_failed', null);
@@ -96,11 +98,22 @@ async function detectDisplays(probe: boolean): Promise<Display[]> {
   // `--query` tastet die Ausgänge neu ab und kann auf manchen Treibern kurz ruckeln;
   // für die regelmäßige Hotplug-Prüfung genügt der vom X-Server gemeldete Stand.
   const { stdout } = await exec('xrandr', [probe ? '--query' : '--current'], { timeout: 5000 });
-  return stdout.split('\n').flatMap(line => {
+  const result: Display[] = [];
+  let current: Display | null = null;
+  for (const line of stdout.split('\n')) {
     // xrandr nennt die Drehung nur, wenn sie von normal abweicht: `1080x1920+0+0 left (normal …`.
     const match = line.match(/^(\S+) connected( primary)?(?: (\d+x\d+\+\d+\+\d+))?(?: (left|right|inverted))?/);
-    return match ? [{ id: match[1], primary: !!match[2], geometry: match[3] || null, rotation: (match[4] || 'normal') as Orientation }] : [];
-  });
+    if (match) {
+      current = { id: match[1], primary: !!match[2], geometry: match[3] || null, rotation: (match[4] || 'normal') as Orientation, modes: [] };
+      result.push(current);
+      continue;
+    }
+    // Eingerückte Zeilen listen die Modi des vorherigen Ausgangs: `   1920x1080     60.00*+  50.00`.
+    const mode = line.match(/^\s+(\d+x\d+)\s/);
+    if (mode && current) { if (!current.modes.includes(mode[1])) current.modes.push(mode[1]); }
+    else if (!/^\s/.test(line)) current = null;
+  }
+  return result;
 }
 
 function chooseOutput(next: Config, connected: Display[]): string | null {
@@ -114,11 +127,16 @@ function layoutKey(output: string, connected: Display[]): string {
   return `${output}@${display?.geometry || 'off'}/${display?.geometry ? display.rotation : 'normal'}`;
 }
 
-async function setDisplayLayout(target: string, rotation: Orientation, connected: Display[]): Promise<void> {
+async function setDisplayLayout(target: string, rotation: Orientation, resolution: Resolution | null, connected: Display[]): Promise<void> {
   const args: string[] = [];
   for (const display of connected) {
     args.push('--output', display.id);
-    if (display.id === target) args.push('--primary', '--auto', '--rotate', rotation, '--pos', '0x0');
+    if (display.id === target) {
+      // Nicht angebotene Auflösung: auf den bevorzugten Modus zurückfallen, statt schwarz zu bleiben.
+      const mode = resolution && display.modes.includes(resolution) ? resolution : null;
+      problem('resolution_unavailable', resolution && !mode ? `${display.id} bietet ${resolution} nicht an; bevorzugter Modus aktiv.` : null, { outputId: display.id });
+      args.push('--primary', ...(mode ? ['--mode', mode] : ['--auto']), '--rotate', rotation, '--pos', '0x0');
+    }
     else args.push('--off');
   }
   await exec('xrandr', args, { timeout: 8000 });
@@ -247,7 +265,7 @@ async function launchBrowser(next: Config): Promise<void> {
   problem('display_unavailable', null);
   selectedOutput = output;
   const rotation = orientationFor(next, output);
-  await setDisplayLayout(output, rotation, displays);
+  await setDisplayLayout(output, rotation, resolutionFor(next, output), displays);
   displays = await detectDisplays(false);
   activeLayout = layoutKey(output, displays);
   if (activeLayout.includes('@off/')) log('warn', 'display_mode_missing', { outputId: output });
@@ -417,7 +435,7 @@ async function tick(): Promise<void> {
     pendingLayout = null;
     state = next.contentUrl ? 'restarting' : 'waiting_for_url';
     lastError = null;
-    log('info', 'config_applied', { revision: next.revision, outputId: next.outputId, orientations: next.orientations, hasContentUrl: !!next.contentUrl });
+    log('info', 'config_applied', { revision: next.revision, outputId: next.outputId, orientations: next.orientations, resolutions: next.resolutions, hasContentUrl: !!next.contentUrl });
   }
   await handleCommand();
   if (reloadRequested) {

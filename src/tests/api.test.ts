@@ -155,6 +155,10 @@ test('Ausrichtungen werden über die Konfiguration gespeichert', async () => {
     // Ältere Dashboards ohne das Feld behalten die gespeicherten Ausrichtungen.
     const kept = await (await put(1, { contentUrl: null, outputId: null })).json() as { orientations: unknown };
     assert.deepEqual(kept.orientations, { 'HDMI-1': 'right' });
+    assert.equal((await put(2, { contentUrl: null, outputId: null, resolutions: { 'HDMI-1': '800x600' } })).status, 400);
+    const sized = await (await put(2, { contentUrl: null, outputId: null, resolutions: { 'HDMI-1': '3840x2160' } })).json() as { resolutions: unknown; orientations: unknown };
+    assert.deepEqual(sized.resolutions, { 'HDMI-1': '3840x2160' });
+    assert.deepEqual(sized.orientations, { 'HDMI-1': 'right' });
     const status = await (await fetch(`${api.base}/status`, { headers })).json() as { lte: { present: boolean; bars: number } };
     assert.equal(status.lte.present, false);
     assert.equal(status.lte.bars, 0);

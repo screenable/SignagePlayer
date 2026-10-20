@@ -59,7 +59,7 @@ sudo SCREENABLE_ADMIN_PASSWORD='…' SCREENABLE_HOTSPOT_PSK='…' SCREENABLE_SIM
 # neuestes Release
 curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo bash
 # bestimmte Version, zusätzliche Optionen
-curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo SCREENABLE_VERSION=v0.5.0 SCREENABLE_REBOOT_TIME=05:30 bash
+curl -fsSL https://raw.githubusercontent.com/screenable/SignagePlayer/main/install.sh | sudo SCREENABLE_VERSION=v0.6.0 SCREENABLE_REBOOT_TIME=05:30 bash
 ```
 
 Auf einem minimalen Debian ohne `curl` vorher `sudo apt install -y curl` ausführen. Die Prüfsumme schützt vor beschädigten oder abgebrochenen Downloads; die Echtheit hängt am Zugang zum GitHub-Repository.
@@ -283,6 +283,10 @@ Im Dashboard lässt sich je HDMI-Ausgang die Ausrichtung wählen; sie gilt, soba
 | Hochformat, Bild 90° nach rechts gedreht | `right` | hochkant, gegen den Uhrzeigersinn gedreht (die Oberkante zeigt nach links) |
 
 Steht das Bild nach dem Speichern auf dem Kopf, die andere Hochformat-Richtung wählen. Der Player setzt die Drehung beim Browserstart und nach einem Monitor-Hotplug erneut; Chromium erhält dadurch die hochkant gestellte Auflösung (z. B. 1080×1920). Gespeichert wird sie in `config.json` unter `orientations`, nur für Ausgänge, die nicht im Querformat laufen.
+
+## Auflösung
+
+Neben der Ausrichtung lässt sich je HDMI-Ausgang die Auflösung wählen: „Automatisch“ (bevorzugter Modus des Bildschirms), 720p (1280×720), 1080p (1920×1080) oder 4K (3840×2160). Der Player setzt sie beim Browserstart und nach einem Monitor-Hotplug per `xrandr --mode`. Auflösungen, die der angeschlossene Bildschirm nicht anbietet, sind im Dashboard gesperrt; ist eine gespeicherte Auflösung nicht verfügbar (z. B. nach einem Bildschirmtausch), fällt der Player auf den bevorzugten Modus zurück und meldet `resolution_unavailable` im Journal. Bei Drehung ins Hochformat erhält Chromium die gedrehte Auflösung (z. B. 2160×3840). Gespeichert wird sie in `config.json` unter `resolutions`, nur für Ausgänge mit fester Auflösung.
 
 ## Diagnose
 
